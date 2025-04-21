@@ -125,6 +125,7 @@ tbConfig.gracefulShutdown = false // Wait for processes to complete after shutdo
 - Zod setup docs
 - Integrate with existing express app docs
 - Fix local ip logging issue
+- Fix gen command
 
 ## Developer
 
