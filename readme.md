@@ -120,6 +120,12 @@ tbConfig.responseDelay = 0 // Custom response delay in milliseconds
 tbConfig.gracefulShutdown = false // Wait for processes to complete after shutdown
 ```
 
+## To do
+
+- Zod setup docs
+- Integrate with existing express app docs
+- Fix local ip logging issue
+
 ## Developer
 
 Developed & maintained by [neilveil](https://github.com/neilveil). Give a star to support my work.
