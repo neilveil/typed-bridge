@@ -25,7 +25,7 @@ export default (
         context = contextParserRes?.context
       }
 
-      res.json(await serverFunction(args, context))
+      res.json((await serverFunction(args, context)) || {})
     } catch (error: any) {
       if (Array.isArray(error.errors)) {
         const keyPath = error.errors[0].path.join('/')
