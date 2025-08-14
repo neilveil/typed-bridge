@@ -1,13 +1,19 @@
-import { $z } from '@/index'
-import * as types from './types'
+const users = [
+    { id: 1, name: 'Neil' },
+    { id: 2, name: 'John' },
+    { id: 3, name: 'Jane' }
+]
 
-export const fetch = async (
-  args: $z.infer<typeof types.fetch.args>,
-  context: $z.infer<typeof types.userContext>
-): Promise<$z.infer<typeof types.fetch.res>> => {
-  types.fetch.args.parse(args)
+export const fetch = async (args: { id: number }): Promise<{ id: number; name: string } | undefined> => {
+    return users.find(user => user.id === args.id)
+}
 
-  console.log('Context:', context)
+export const update = async (args: { id: number; name: string }): Promise<void> => {
+    const user = users.find(user => user.id === args.id)
+    if (!user) throw new Error('User not found')
+    user.name = args.name
+}
 
-  return { id: args.id, name: 'Neil' }
+export const fetchAll = async (): Promise<{ id: number; name: string }[]> => {
+    return users
 }

@@ -4,128 +4,118 @@
 
 **Strictly Typed | Production Ready | No Configuration Server**
 
-Typed Bridge allows you to build **typed server functions** with a argument validation layer in between which is tightly coupled with typescript apps like React, React Native, Vue, Angular etc.
+Typed Bridge allows you to build **typed server functions** which is tightly coupled with typescript apps like React, React Native, Vue, Angular etc.
 
-## 📦 Installation
+## ✨ Features
 
-Install `typed-bridge` via npm:
+- ✅ End-to-end type safety between client & server
+- ✅ Auto-generated client bridge for your front-end
+- ✅ Zero config server setup
+- ✅ In-built graceful shutdown
+- ✅ Framework agnostic
+
+## ⚡ Quick Start
+
+### Install
 
 ```bash
 npm i typed-bridge
 ```
 
-## Typed Bridge components:
+### Back-end setup
 
-- **Bridge file**: Main bridge file from which types are exported for front-end.
-- **Paths**: Server function path like `user.fetch`, similar to routes.
-- **Server functions**: Actual server function which holds the business logic, similar to controller.
-- **Arguments**: Server function arguments.
-- **Validation layer**: Validation layer validates server arguments before calling the function.
-- **Context**: Context parsed from requests for server functions.
-- **Context Parser**: Context parser parse the context from requests.
-
-### Server setup
-
-`server.ts`
-
-```ts
-import { createApp, startServer } from 'typed-bridge'
-
-const app = createApp()
-const server = startServer(app, 8080)
-```
-
-### Create Bridge
-
-`bridge/index.ts`
-
-```ts
-import * as user from './user.bridge'
-
-export default {
-  'user.fetch': user.fetch,
-  'user.update': user.update
-}
-```
-
-`bridge/user.bridge.ts`
-
-```ts
-export const fetch = async (
-  args: { id: number },
-  context: { name: string; authorization: string }
-): { id: number; name: string } => {
-  return { id: args.id, name: 'Typed Bridge' }
-}
-
-export const update = async () => {}
-```
+#### Setup server
 
 `server.ts`
 
 ```ts
 import { createBridge } from 'typed-bridge'
+import bridge from './bridge'
 
-const contextParser = (req, res, next) => {}
-
-app.use('/bridge', createBridge(bridge))
+createBridge(bridge, 8080, '/bridge')
 ```
 
-### Call typed bridge functions from front-end
+#### Create a bridge file
 
-Generate bridge file
+`bridge/index.ts`
 
-`package.json`
-
-```json
-{
-  "scripts": {
-    "gen-typed-bridge": "typed-bridge gen-typed-bridge --src ./src/bridge/index.ts --dest ./bridge.ts"
-  }
+```ts
+export default {
+    'user.fetch': user.fetch,
+    'user.update': user.update,
+    'user.fetchAll': user.fetchAll
 }
 ```
 
-**src**: Typed bridge source file path
-**dest**: Typed bridge output file path
+#### Declare functions
 
-Import generated `bridge.ts` file in front-end & call server functions. Usage example:
+`bridge/user/index.ts`
+
+```ts
+const users = [
+    { id: 1, name: 'Neil' },
+    { id: 2, name: 'John' },
+    { id: 3, name: 'Jane' }
+]
+
+export const fetch = async (args: { id: number }): Promise<{ id: number; name: string }> => {
+    return users.find(user => user.id === args.id)
+}
+
+export const update = async (args: { id: number; name: string }): Promise<void> => {
+    const user = users.find(user => user.id === args.id)
+    if (!user) throw new Error('User not found')
+    user.name = args.name
+}
+
+export const fetchAll = async (): Promise<{ id: number; name: string }[]> => {
+    return users
+}
+```
+
+### Front-end setup
+
+#### Setup bridge generator script in back-end `package.json`
+
+```json
+{
+    "scripts": {
+        "gen-typed-bridge": "typed-bridge gen-typed-bridge --src ./src/bridge/index.ts --dest ./bridge.ts"
+    }
+}
+```
+
+- **src**: Typed bridge source file path
+- **dest**: Typed bridge output file path
+
+#### Generate bridge file
+
+```bash
+npm run gen-typed-bridge
+```
+
+#### Front-end usage
+
+Import generated `build/bridge.ts` file from back-end in front-end & call server functions. Usage example:
 
 ```ts
 import bridge from './bridge'
 
-// Need to be set once
-// Set typed bridge server host
 bridgeConfig.host = 'http://localhost:8080/bridge'
-// Set headers (optional)
-bridgeConfig.headers = { authorization: 'Basic mydemotoken==' }
-
-..
 
 const user = await bridge['user.fetch']({ id: 1 })
 ```
 
-> Generated Typed Bridge file can also be hosted publicly as it doesn't contains any code, only the server functions schema. Every time front-end server is started, it can be automatically synced using tools like [clone-kit](https://www.npmjs.com/package/clone-kit).
+## Docs
 
-## Typed Bridge config
+- [Configuration](./docs/configuration.md)
+- [Add middleware](./docs/add-middleware.md)
+- [Setup context for bridge handler](./docs/context-setup.md)
+- [Setup request validation](./docs/request-validation.md)
+- [Automatically sync bridge file from back-end to front-end](./docs/auto-bridge-sync.md)
+- [Setup `type-bridge` docs in your cursor rules](./docs/type-bridge-cursor-rule.md)
 
-```ts
-import { tbConfig } from 'typed-bridge'
-
-tbConfig.logs.request = true // Enable request logging
-tbConfig.logs.response = true // Enable response logging
-tbConfig.logs.error = true // Enable error logging
-
-tbConfig.idPrefix = '' // Request id prefix (useful in tracing request in microservice architecture)
-tbConfig.responseDelay = 0 // Custom response delay in milliseconds
-tbConfig.gracefulShutdown = false // Wait for processes to complete after shutdown
-```
-
-## To do
-
-- Zod setup docs
-- Integrate with existing express app docs
-- Fix local ip logging issue
-- Fix gen command
+Demo Project: [https://github.com/neilveil/typed-bridge-demo](https://github.com/neilveil/typed-bridge-demo)
 
 ## Developer
 
