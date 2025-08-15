@@ -1,6 +1,6 @@
-# Automatically sync bridge file from back-end to front-end
+## Automatically sync bridge file from back-end to front-end
 
-## Step 1: Host the bridge file
+### Step 1: Host the bridge file
 
 ```ts
 // Back-end
@@ -10,7 +10,7 @@ const app = createBridge(bridge, 8080, '/')
 app.use(express.static(path.join(__dirname, 'public')))
 ```
 
-## Step 2: Configure generate command to build in public directory
+### Step 2: Configure generate command to build in public directory
 
 ```json
 {
@@ -20,7 +20,7 @@ app.use(express.static(path.join(__dirname, 'public')))
 }
 ```
 
-## Step 3: Setup typed-bridge types file clone script
+### Step 3: Setup typed-bridge types file clone script
 
 [Clone Kit](https://www.npmjs.com/package/clone-kit)
 
@@ -42,7 +42,7 @@ Add clone-kit configuration file in front-end project `clone-kit.json`
 }
 ```
 
-## Step 4: Setup clone script to run before project start/build
+### Step 4: Setup clone script to run before project start/build
 
 ```json
 {

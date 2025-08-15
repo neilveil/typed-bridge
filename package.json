@@ -12,7 +12,8 @@
         "dist": "rimraf dist && tsc",
         "test:server": "nodemon --watch src --ext ts --exec 'ts-node -r tsconfig-paths/register src/demo/index.ts'",
         "test:cli": "ts-node -r tsconfig-paths/register src/scripts/cli.ts gen-typed-bridge --src ./src/demo/bridge/index.ts --dest ./bridge.ts",
-        "lint": "eslint"
+        "lint": "eslint",
+        "docs": "cat readme.md docs/* > docs.md"
     },
     "bin": {
         "typed-bridge": "./dist/scripts/cli.js"

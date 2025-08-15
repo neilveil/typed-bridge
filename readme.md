@@ -1,45 +1,57 @@
-# Typed Bridge - Strictly typed server functions for typescript apps 🚀
+# Typed Bridge — Strictly Typed Server Functions for TypeScript 🚀
 
-[![Downloads](https://img.shields.io/npm/dm/typed-bridge.svg)](https://www.npmjs.com/package/typed-bridge) [![Version](https://img.shields.io/npm/v/typed-bridge.svg)](https://www.npmjs.com/package/typed-bridge)
+[![Downloads](https://img.shields.io/npm/dm/typed-bridge.svg)](https://www.npmjs.com/package/typed-bridge)
+[![Version](https://img.shields.io/npm/v/typed-bridge.svg)](https://www.npmjs.com/package/typed-bridge)
+[![License](https://img.shields.io/npm/l/typed-bridge.svg)](https://github.com/neilveil/typed-bridge/blob/main/license.txt)
 
-**Strictly Typed | Production Ready | No Configuration Server**
+**End-to-End Type Safety • Framework Agnostic • Zero Config**
 
-Typed Bridge allows you to build **typed server functions** which is tightly coupled with typescript apps like React, React Native, Vue, Angular etc.
+Typed Bridge lets you define **strictly typed server functions** for TypeScript apps — React, Vue, Angular, React Native, and more, without the boilerplate of REST or GraphQL. It automatically generates a client bridge, ensuring your types stay in sync from backend to frontend.
+
+---
 
 ## ✨ Features
 
-- ✅ End-to-end type safety between client & server
-- ✅ Auto-generated client bridge for your front-end
-- ✅ Zero config server setup
-- ✅ In-built graceful shutdown
-- ✅ Framework agnostic
+- ✅ **End-to-end type safety** between client & server
+- ✅ **Auto-generated client bridge** for your front-end
+- ✅ **In-built graceful shutdown** and error handling
+- ✅ **Framework agnostic** — works with any front-end framework
+- ✅ **Middleware support** for authentication, validation, logging
+- ✅ **Context sharing** between middleware and handlers
+- ✅ **Real-time request/response logging** for debugging
+- ✅ **Auto import `.env` variables** for config management
+
+---
 
 ## ⚡ Quick Start
 
-### Install
+### 1. Install
 
 ```bash
 npm i typed-bridge
 ```
 
-### Back-end setup
+### Back-end Setup
 
-#### Setup server
+#### 1. Setup Server
 
-`server.ts`
+Create Server `server.ts`
 
-```ts
+```typescript
 import { createBridge } from 'typed-bridge'
 import bridge from './bridge'
 
+// Create and start the server
 createBridge(bridge, 8080, '/bridge')
 ```
 
-#### Create a bridge file
+#### 2. Create Bridge File
 
-`bridge/index.ts`
+Define Bridge Routes `bridge/index.ts`
 
-```ts
+```typescript
+import * as user from './user'
+
 export default {
     'user.fetch': user.fetch,
     'user.update': user.update,
@@ -47,76 +59,173 @@ export default {
 }
 ```
 
-#### Declare functions
+#### 3. Declare Functions
 
-`bridge/user/index.ts`
+Add Handler Functions `bridge/user/index.ts`
 
-```ts
-const users = [
-    { id: 1, name: 'Neil' },
-    { id: 2, name: 'John' },
-    { id: 3, name: 'Jane' }
+```typescript
+interface User {
+    id: number
+    name: string
+    email: string
+    createdAt: Date
+}
+
+const users: User[] = [
+    { id: 1, name: 'Neil', email: 'neil@example.com', createdAt: new Date() },
+    { id: 2, name: 'John', email: 'john@example.com', createdAt: new Date() },
+    { id: 3, name: 'Jane', email: 'jane@example.com', createdAt: new Date() }
 ]
 
-export const fetch = async (args: { id: number }): Promise<{ id: number; name: string }> => {
-    return users.find(user => user.id === args.id)
+export const fetch = async (args: { id: number }): Promise<User> => {
+    const user = users.find(u => u.id === args.id)
+    if (!user) throw new Error(`User with ID ${args.id} not found`)
+    return user
 }
 
-export const update = async (args: { id: number; name: string }): Promise<void> => {
-    const user = users.find(user => user.id === args.id)
-    if (!user) throw new Error('User not found')
-    user.name = args.name
+export const update = async (args: { id: number; name?: string; email?: string }): Promise<User> => {
+    const user = users.find(u => u.id === args.id)
+    if (!user) throw new Error(`User with ID ${args.id} not found`)
+    if (args.name) user.name = args.name
+    if (args.email) user.email = args.email
+    return user
 }
 
-export const fetchAll = async (): Promise<{ id: number; name: string }[]> => {
-    return users
-}
+export const fetchAll = async (): Promise<User[]> => users
 ```
 
 ### Front-end setup
 
-#### Setup bridge generator script in back-end `package.json`
+#### Add Bridge Generation Script (back-end: `package.json`)
 
 ```json
 {
     "scripts": {
-        "gen-typed-bridge": "typed-bridge gen-typed-bridge --src ./src/bridge/index.ts --dest ./bridge.ts"
+        "gen:typed-bridge": "typed-bridge gen-typed-bridge --src ./src/bridge/index.ts --dest ./bridge.ts"
     }
 }
 ```
 
-- **src**: Typed bridge source file path
-- **dest**: Typed bridge output file path
-
-#### Generate bridge file
+#### 2. Generate Bridge File
 
 ```bash
-npm run gen-typed-bridge
+npm run gen:typed-bridge
 ```
 
-#### Front-end usage
+#### 3. Use in Frontend
 
-Import generated `build/bridge.ts` file from back-end in front-end & call server functions. Usage example:
+Import generated `bridge.ts` file from back-end in front-end & call server functions. Usage example:
 
-```ts
-import bridge from './bridge'
+```typescript
+import bridge, { bridgeConfig } from './bridge'
 
 bridgeConfig.host = 'http://localhost:8080/bridge'
+bridgeConfig.headers = {
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer 123'
+}
 
 const user = await bridge['user.fetch']({ id: 1 })
 ```
 
-## Docs
+> [Automatically sync bridge file from back-end to front-end](./docs/auto-bridge-sync.md)
 
-- [Configuration](./docs/configuration.md)
-- [Add middleware](./docs/add-middleware.md)
-- [Setup context for bridge handler](./docs/context-setup.md)
-- [Setup request validation](./docs/request-validation.md)
-- [Automatically sync bridge file from back-end to front-end](./docs/auto-bridge-sync.md)
-- [Setup `type-bridge` docs in your cursor rules](./docs/type-bridge-cursor-rule.md)
+## Middleware setup
 
-Demo Project: [https://github.com/neilveil/typed-bridge-demo](https://github.com/neilveil/typed-bridge-demo)
+Typed Bridge provides a middleware system to add custom logic because calling bridge handler.
+
+```ts
+createMiddleware('user.fetch', async (req, res) => {
+    console.log('Middleware')
+})
+```
+
+You can also use glob patterns to match multiple routes.
+
+```ts
+createMiddleware('user.*', async (req, res) => {
+    console.log('Middleware')
+})
+```
+
+### Setup Context
+
+Middlewares can return a `context` object that will be merged with the request context.
+
+```ts
+createMiddleware('user.*', async (req, res) => {
+    return {
+        context: {
+            a: 1
+        }
+    }
+})
+
+createMiddleware('user.fetch', async (req, res) => {
+    return {
+        context: {
+            b: 2
+        }
+    }
+})
+```
+
+The context object will be merged with the request context.
+
+```ts
+type Context = {
+    a: number
+    b: number
+}
+
+export const fetch = async (
+    args: { id: number },
+    context: Context
+): Promise<{ id: number; name: string } | undefined> => {
+    console.log(context) // { a: 1, b: 2 }
+    return users.find(user => user.id === args.id)
+}
+```
+
+### Request validation with Typed Bridge Middleware
+
+Typed Bridge provides a middleware system to validate request.
+
+```ts
+createMiddleware('user.*', async (req, res) => {
+    if (req.headers.authorization !== 'Bearer 123') {
+        throw new Error('Unauthorized')
+    }
+})
+```
+
+Custom error message can be thrown
+
+```ts
+createMiddleware('user.*', async (req, res) => {
+    if (req.headers.authorization !== 'Bearer 123') {
+        res.status(401).send('Unauthorized')
+
+        // Required to stop the request from being processed, else next middleware or bridge handler will be called
+        return { next: false }
+    }
+})
+```
+
+## Configuration
+
+```typescript
+import { tbConfig } from 'typed-bridge'
+
+// Logging Configuration
+tbConfig.logs.request = true // Enable request logging
+tbConfig.logs.response = true // Enable response logging
+tbConfig.logs.error = true // Enable error logging
+
+// Performance Configuration
+tbConfig.responseDelay = 0 // Custom response delay in milliseconds (useful for testing)
+```
 
 ## Developer
 
-Developed & maintained by [neilveil](https://github.com/neilveil). Give a star to support my work.
+Developed & maintained by [neilveil](https://github.com/neilveil). Give a ⭐ to support this project!

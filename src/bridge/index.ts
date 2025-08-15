@@ -3,6 +3,7 @@ import chalk from 'chalk'
 import compression from 'compression'
 import cors from 'cors'
 import express, { Application, Request, Response } from 'express'
+import { Server } from 'http'
 import _path from 'path'
 import { tbConfig } from '..'
 
@@ -22,7 +23,11 @@ let shutdownCallback = () => {}
 
 export const onShutdown = (fn: () => void) => (shutdownCallback = fn)
 
-export const createBridge = (bridge: Bridge, port: number, path: string = '/bridge'): Application => {
+export const createBridge = (
+    bridge: Bridge,
+    port: number,
+    path: string = '/bridge'
+): { app: Application; server: Server } => {
     const app = express()
 
     // cors
@@ -115,7 +120,7 @@ export const createBridge = (bridge: Bridge, port: number, path: string = '/brid
     process.on('SIGINT', () => shutdown())
     process.on('SIGTERM', () => shutdown())
 
-    return app
+    return { app, server }
 }
 
 const bridgeHandler =

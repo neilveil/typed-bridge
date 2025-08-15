@@ -1,6 +1,5 @@
 import { Application } from 'express'
 import { Server } from 'http'
-import { tbConfig } from '..'
 import { printStartLogs, printStopLogs } from '../helpers'
 
 export default (app: Application, port = 8080): Server => {
@@ -13,8 +12,6 @@ export default (app: Application, port = 8080): Server => {
 
         server.close()
         printStopLogs()
-
-        if (!tbConfig.gracefulShutdown) process.exit(0)
     }
 
     process.on('SIGINT', () => shutdown())
