@@ -1,63 +1,65 @@
 {
-  "name": "typed-bridge",
-  "description": "Strictly typed server functions for typescript apps",
-  "version": "1.0.1",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "author": "neilveil",
-  "repository": "neilveil/typed-bridge",
-  "license": "MIT",
-  "scripts": {
-    "start": "ts-node src/index.ts",
-    "dist": "rimraf dist && tsc",
-    "test:server": "nodemon --watch src --ext ts --exec 'ts-node -r tsconfig-paths/register src/demo/index.ts'",
-    "test:cli": "ts-node -r tsconfig-paths/register src/scripts/cli.ts gen-typed-bridge --src ./src/demo/bridge/index.ts --dest ./bridge.ts",
-    "lint": "eslint"
-  },
-  "bin": {
-    "typed-bridge": "./dist/scripts/cli.js"
-  },
-  "dependencies": {
-    "chalk": "^5.4.1",
-    "commander": "^13.1.0",
-    "compression": "^1.8.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.5.0",
-    "express": "^5.1.0",
-    "rollup": "^4.40.0",
-    "rollup-plugin-dts": "^6.2.1",
-    "typescript": "^5.8.3",
-    "zod": "^3.24.3"
-  },
-  "devDependencies": {
-    "@eslint/js": "^9.25.0",
-    "@types/compression": "^1.7.5",
-    "@types/cors": "^2.8.17",
-    "@types/express": "^5.0.1",
-    "@types/node": "^22.14.1",
-    "@typescript-eslint/eslint-plugin": "^8.30.1",
-    "@typescript-eslint/parser": "^8.30.1",
-    "eslint": "^9.25.0",
-    "eslint-plugin-node": "^11.1.0",
-    "globals": "^16.0.0",
-    "nodemon": "^3.1.9",
-    "prettier": "^3.5.3",
-    "rimraf": "^6.0.1",
-    "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
-    "typescript-eslint": "^8.30.1"
-  },
-  "keywords": [
-    "api",
-    "backend",
-    "development",
-    "framework",
-    "functions",
-    "grpc",
-    "server",
-    "trpc",
-    "typed",
-    "validation",
-    "zod"
-  ]
+    "name": "typed-bridge",
+    "description": "Strictly typed server functions for typescript apps",
+    "version": "2.0.0",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "author": "neilveil",
+    "repository": "neilveil/typed-bridge",
+    "license": "MIT",
+    "scripts": {
+        "start": "ts-node src/index.ts",
+        "dist": "rimraf dist && tsc",
+        "test:server": "nodemon --watch src --ext ts --exec 'ts-node -r tsconfig-paths/register src/demo/index.ts'",
+        "test:cli": "ts-node -r tsconfig-paths/register src/scripts/cli.ts gen-typed-bridge-client --src ./src/demo/bridge/index.ts --dest ./test/bridge.ts",
+        "test:bridge": "ts-node -r tsconfig-paths/register test/index.ts",
+        "lint": "eslint",
+        "docs": "cat readme.md docs/* > docs.md"
+    },
+    "bin": {
+        "typed-bridge": "./dist/scripts/cli.js"
+    },
+    "dependencies": {
+        "chalk": "^5.4.1",
+        "commander": "^13.1.0",
+        "compression": "^1.8.0",
+        "cors": "^2.8.5",
+        "dotenv": "^16.5.0",
+        "express": "^5.1.0",
+        "rollup": "^4.40.0",
+        "rollup-plugin-dts": "^6.2.1",
+        "typescript": "^5.8.3",
+        "zod": "^3.24.3"
+    },
+    "devDependencies": {
+        "@eslint/js": "^9.25.0",
+        "@types/compression": "^1.7.5",
+        "@types/cors": "^2.8.17",
+        "@types/express": "^5.0.1",
+        "@types/node": "^22.14.1",
+        "@typescript-eslint/eslint-plugin": "^8.30.1",
+        "@typescript-eslint/parser": "^8.30.1",
+        "eslint": "^9.25.0",
+        "eslint-plugin-node": "^11.1.0",
+        "globals": "^16.0.0",
+        "nodemon": "^3.1.9",
+        "prettier": "^3.5.3",
+        "rimraf": "^6.0.1",
+        "ts-node": "^10.9.2",
+        "tsconfig-paths": "^4.2.0",
+        "typescript-eslint": "^8.30.1"
+    },
+    "keywords": [
+        "api",
+        "backend",
+        "development",
+        "framework",
+        "functions",
+        "grpc",
+        "server",
+        "trpc",
+        "typed",
+        "validation",
+        "zod"
+    ]
 }

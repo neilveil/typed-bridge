@@ -1,13 +1,47 @@
 import { $z } from '@/index'
 import * as types from './types'
 
+export interface User {
+    id: number
+    name: string
+    email: string
+    createdAt: Date
+}
+
+const users: User[] = [
+    { id: 1, name: 'Neil', email: 'neil@example.com', createdAt: new Date() },
+    { id: 2, name: 'John', email: 'john@example.com', createdAt: new Date() },
+    { id: 3, name: 'Jane', email: 'jane@example.com', createdAt: new Date() }
+]
+
 export const fetch = async (
-  args: $z.infer<typeof types.fetch.args>,
-  context: $z.infer<typeof types.userContext>
+    args: $z.infer<typeof types.fetch.args>,
+    context: { id: number }
 ): Promise<$z.infer<typeof types.fetch.res>> => {
-  types.fetch.args.parse(args)
+    args = types.fetch.args.parse(args)
 
-  console.log('Context:', context)
+    console.log(context)
 
-  return { id: args.id, name: 'Neil' }
+    const user = users.find(user => user.id === args.id)
+    if (!user) {
+        throw new Error(`User with ID ${args.id} not found`)
+    }
+
+    return user
+}
+
+export const update = async (args: { id: number; name?: string; email?: string }): Promise<User> => {
+    const user = users.find(user => user.id === args.id)
+    if (!user) {
+        throw new Error(`User with ID ${args.id} not found`)
+    }
+
+    if (args.name) user.name = args.name
+    if (args.email) user.email = args.email
+
+    return user
+}
+
+export const fetchAll = async (): Promise<User[]> => {
+    return users
 }

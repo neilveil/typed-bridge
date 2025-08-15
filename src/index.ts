@@ -1,9 +1,7 @@
 import 'dotenv/config'
 
-export { default as createApp } from './app'
-export { default as createBridge } from './bridge'
+export { createBridge, createMiddleware, onShutdown } from './bridge'
 export { config as tbConfig } from './config'
-export { default as startServer } from './server'
 
 export { default as $z } from 'zod'
 
