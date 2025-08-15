@@ -1,15 +1,15 @@
-import { $z } from '@/index'
+import { z } from 'zod'
 
 export const fetch = {
-    args: $z.object({
-        id: $z.number().min(1)
+    args: z.object({
+        id: z.number().min(1)
     }),
-    res: $z.object({
-        id: $z.number(),
-        name: $z.string()
+    res: z.object({
+        id: z.number(),
+        name: z.string()
     })
 }
 
-export const userContext = $z.object({
-    id: $z.number()
+export const userContext = z.object({
+    id: z.number()
 })

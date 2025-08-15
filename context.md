@@ -102,32 +102,32 @@ createMiddleware('user.*', async (req, res) => {
 
 ---
 
-## **How to Validate with `$z` (Zod)**
+## **How to Validate Zod**
 
 ```ts
 // src/bridge/user/types.ts
-import { $z } from 'typed-bridge'
+import { z } from 'zod'
 
 export const fetch = {
-    args: $z.object({ id: $z.number().min(1) }),
-    res: $z.object({
-        id: $z.number(),
-        name: $z.string(),
-        email: $z.string().email(),
-        createdAt: $z.date()
+    args: z.object({ id: z.number().min(1) }),
+    res: z.object({
+        id: z.number(),
+        name: z.string(),
+        email: z.string().email(),
+        createdAt: z.date()
     })
 }
 ```
 
 ```ts
 // src/bridge/user/index.ts (validated version)
-import { $z } from 'typed-bridge'
+import { z } from 'zod'
 import * as types from './types.js'
 
 export const fetch = async (
-    args: $z.infer<typeof types.fetch.args>,
+    args: z.infer<typeof types.fetch.args>,
     context: { userId?: number }
-): Promise<$z.infer<typeof types.fetch.res>> => {
+): Promise<z.infer<typeof types.fetch.res>> => {
     args = types.fetch.args.parse(args)
     const user = users.find(u => u.id === args.id)
     if (!user) throw new Error(`User ${args.id} not found`)

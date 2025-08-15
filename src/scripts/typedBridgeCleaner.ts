@@ -1,6 +1,6 @@
-import * as fs from 'fs'
-import * as path from 'path'
-import * as ts from 'typescript'
+import fs from 'fs'
+import path from 'path'
+import ts from 'typescript'
 
 // Snippet to inject at the end
 const proxySnippet = () => `

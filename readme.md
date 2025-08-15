@@ -230,33 +230,33 @@ createMiddleware('user.*', async (req, res) => {
 `types.ts`
 
 ```ts
-import { $z } from 'typed-bridge'
+import { z } from 'zod'
 
 export const fetch = {
-    args: $z.object({
-        id: $z.number().min(1)
+    args: z.object({
+        id: z.number().min(1)
     }),
-    res: $z.object({
-        id: $z.number(),
-        name: $z.string()
+    res: z.object({
+        id: z.number(),
+        name: z.string()
     })
 }
 
-export const userContext = $z.object({
-    id: $z.number()
+export const userContext = z.object({
+    id: z.number()
 })
 ```
 
 #### Use in bridge handler
 
 ```ts
-import { $z } from 'typed-bridge'
+import { z } from 'zod'
 import * as types from './types'
 
 export const fetch = async (
-    args: $z.infer<typeof types.fetch.args>,
+    args: z.infer<typeof types.fetch.args>,
     context: { id: number }
-): Promise<$z.infer<typeof types.fetch.res>> => {
+): Promise<z.infer<typeof types.fetch.res>> => {
     args = types.fetch.args.parse(args)
 
     console.log(context)

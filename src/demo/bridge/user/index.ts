@@ -1,4 +1,4 @@
-import { $z } from '@/index'
+import { z } from 'zod'
 import * as types from './types'
 
 export interface User {
@@ -15,9 +15,9 @@ const users: User[] = [
 ]
 
 export const fetch = async (
-    args: $z.infer<typeof types.fetch.args>,
+    args: z.infer<typeof types.fetch.args>,
     context: { id: number }
-): Promise<$z.infer<typeof types.fetch.res>> => {
+): Promise<z.infer<typeof types.fetch.res>> => {
     args = types.fetch.args.parse(args)
 
     console.log(context)
