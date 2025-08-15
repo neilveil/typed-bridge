@@ -4,7 +4,7 @@ import buildTypedBridge from './buildTypeBridge'
 import typedBridgeCleaner from './typedBridgeCleaner'
 
 program
-    .command('gen-typed-bridge')
+    .command('gen-typed-bridge-client')
     .description('Generate a typed bridge')
     .option('--src <string>', 'Set typed bridge source file path')
     .option('--dest <string>', 'Set typed bridge destination file path', 'typedBridge.ts')

@@ -11,7 +11,7 @@
         "start": "ts-node src/index.ts",
         "dist": "rimraf dist && tsc",
         "test:server": "nodemon --watch src --ext ts --exec 'ts-node -r tsconfig-paths/register src/demo/index.ts'",
-        "test:cli": "ts-node -r tsconfig-paths/register src/scripts/cli.ts gen-typed-bridge --src ./src/demo/bridge/index.ts --dest ./test/bridge.ts",
+        "test:cli": "ts-node -r tsconfig-paths/register src/scripts/cli.ts gen-typed-bridge-client --src ./src/demo/bridge/index.ts --dest ./test/bridge.ts",
         "test:bridge": "ts-node -r tsconfig-paths/register test/index.ts",
         "lint": "eslint",
         "docs": "cat readme.md docs/* > docs.md"

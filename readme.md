@@ -104,12 +104,12 @@ export const fetchAll = async (): Promise<User[]> => {
 
 ### Front-end setup
 
-#### Add Bridge Generation Script (back-end: `package.json`)
+#### Add Typed Bridge Client Generation Script (back-end: `package.json`)
 
 ```json
 {
     "scripts": {
-        "gen:typed-bridge": "typed-bridge gen-typed-bridge --src ./src/bridge/index.ts --dest ./bridge.ts"
+        "gen:typed-bridge-client": "typed-bridge gen-typed-bridge-client --src ./src/bridge/index.ts --dest ./bridge.ts"
     }
 }
 ```
@@ -117,7 +117,7 @@ export const fetchAll = async (): Promise<User[]> => {
 #### 2. Generate Bridge File
 
 ```bash
-npm run gen:typed-bridge
+npm run gen:typed-bridge-client
 ```
 
 #### 3. Use in Frontend
@@ -287,3 +287,7 @@ tbConfig.responseDelay = 0 // Custom response delay in milliseconds (useful for 
 ## Developer
 
 Developed & maintained by [neilveil](https://github.com/neilveil). Give a ⭐ to support this project!
+
+---
+
+[Context for AI IDE](https://raw.githubusercontent.com/neilveil/typed-bridge/refs/heads/master/context.md)
