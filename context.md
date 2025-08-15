@@ -166,3 +166,9 @@ console.log(user)
 2. Add `'module.method': handler` to `src/bridge/index.ts`
 3. (If validating) add types in `src/bridge/<module>/types.ts`
 4. Run `npm run gen:typed-bridge-client` to refresh the client
+
+---
+
+## **Environment Variables**
+
+Typed Bridge automatically imports `.env` variables for you, internally using [`dotenv`](https://www.npmjs.com/package/dotenv`). This means any environment variables defined in a `.env` file at the root of your project will be available to your application without additional setup.

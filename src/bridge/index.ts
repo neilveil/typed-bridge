@@ -1,4 +1,3 @@
-import { matchesPattern, printStartLogs, printStopLogs } from '@/helpers'
 import chalk from 'chalk'
 import compression from 'compression'
 import cors from 'cors'
@@ -6,6 +5,7 @@ import express, { Application, Request, Response } from 'express'
 import { Server } from 'http'
 import _path from 'path'
 import { tbConfig } from '..'
+import { matchesPattern, printStartLogs, printStopLogs } from '../helpers'
 
 type Bridge = { [key: string]: (...args: any[]) => Promise<any> }
 

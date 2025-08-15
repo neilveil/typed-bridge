@@ -284,6 +284,10 @@ tbConfig.logs.error = true // Enable error logging
 tbConfig.responseDelay = 0 // Custom response delay in milliseconds (useful for testing)
 ```
 
+## Environment File
+
+Typed Bridge automatically imports `.env` variables for you, internally using [`dotenv`](https://www.npmjs.com/package/dotenv).
+
 ## Developer
 
 Developed & maintained by [neilveil](https://github.com/neilveil). Give a ⭐ to support this project!
