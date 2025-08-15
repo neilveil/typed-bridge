@@ -1,4 +1,7 @@
-interface User {
+import { $z } from '@/index'
+import * as types from './types'
+
+export interface User {
     id: number
     name: string
     email: string
@@ -11,11 +14,19 @@ const users: User[] = [
     { id: 3, name: 'Jane', email: 'jane@example.com', createdAt: new Date() }
 ]
 
-export const fetch = async (args: { id: number }): Promise<User> => {
+export const fetch = async (
+    args: $z.infer<typeof types.fetch.args>,
+    context: { id: number }
+): Promise<$z.infer<typeof types.fetch.res>> => {
+    args = types.fetch.args.parse(args)
+
+    console.log(context)
+
     const user = users.find(user => user.id === args.id)
     if (!user) {
         throw new Error(`User with ID ${args.id} not found`)
     }
+
     return user
 }
 

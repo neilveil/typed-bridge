@@ -64,7 +64,7 @@ export default {
 Add Handler Functions `bridge/user/index.ts`
 
 ```typescript
-interface User {
+export interface User {
     id: number
     name: string
     email: string
@@ -78,20 +78,28 @@ const users: User[] = [
 ]
 
 export const fetch = async (args: { id: number }): Promise<User> => {
-    const user = users.find(u => u.id === args.id)
-    if (!user) throw new Error(`User with ID ${args.id} not found`)
+    const user = users.find(user => user.id === args.id)
+    if (!user) {
+        throw new Error(`User with ID ${args.id} not found`)
+    }
     return user
 }
 
 export const update = async (args: { id: number; name?: string; email?: string }): Promise<User> => {
-    const user = users.find(u => u.id === args.id)
-    if (!user) throw new Error(`User with ID ${args.id} not found`)
+    const user = users.find(user => user.id === args.id)
+    if (!user) {
+        throw new Error(`User with ID ${args.id} not found`)
+    }
+
     if (args.name) user.name = args.name
     if (args.email) user.email = args.email
+
     return user
 }
 
-export const fetchAll = async (): Promise<User[]> => users
+export const fetchAll = async (): Promise<User[]> => {
+    return users
+}
 ```
 
 ### Front-end setup
@@ -123,6 +131,9 @@ bridgeConfig.host = 'http://localhost:8080/bridge'
 bridgeConfig.headers = {
     'Content-Type': 'application/json',
     Authorization: 'Bearer 123'
+}
+bridgeConfig.onResponse = res => {
+    // Custom response handling
 }
 
 const user = await bridge['user.fetch']({ id: 1 })
@@ -211,6 +222,8 @@ createMiddleware('user.*', async (req, res) => {
     }
 })
 ```
+
+> [Setup Zod Validation](./docs/setup-zod-validation.md)
 
 ## Configuration
 
