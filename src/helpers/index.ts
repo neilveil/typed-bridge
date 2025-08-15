@@ -25,8 +25,6 @@ const seperator = '\n-x-x-x-x-x-\n'
 export const printStartLogs = (port: number) => {
     const ipList = getLocalIPList()
 
-    console.log(ipList)
-
     console.log(seperator)
     console.log(chalk.bgWhite.black('  Typed Bridge  '))
     console.log(seperator)

@@ -1,7 +1,7 @@
 {
     "name": "typed-bridge",
     "description": "Strictly typed server functions for typescript apps",
-    "version": "2.0.10",
+    "version": "2.0.11",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "author": "neilveil",
