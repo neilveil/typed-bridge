@@ -98,12 +98,12 @@ export const createBridge = (
             setTimeout(next, tbConfig.responseDelay)
         })
 
-    // Server health
-    app.use(_path.join(path, 'health'), (req, res) => {
-        res.sendStatus(200)
-    })
-
     app.use(path, bridgeHandler(bridge))
+
+    // Server health
+    app.get(_path.join(path, 'health'), (req: Request, res: Response) => {
+        res.status(200).json({ status: 'OK' })
+    })
 
     const server = app.listen(port, () => printStartLogs(port))
 
