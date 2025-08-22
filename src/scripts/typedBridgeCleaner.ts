@@ -5,45 +5,49 @@ import ts from 'typescript'
 // Snippet to inject at the end
 const proxySnippet = () => `
 type typedBridgeConfig = {
-  host: string
-  headers: { [key: string]: string }
-  onResponse: (res: Response) => void
+    host: string
+    headers: { [key: string]: string }
+    onResponse: (res: Response) => void
 }
 
 export const typedBridgeConfig: typedBridgeConfig = {
-  host: '',
-  headers: { 'Content-Type': 'application/json' },
-  onResponse: (res: Response) => {}
+    host: '',
+    headers: { 'Content-Type': 'application/json' },
+    onResponse: (res: Response) => {}
 }
 
 export const typedBridge = new Proxy(
-  {},
-  {
-    get(_, methodName: string) {
-      return async (args: any) => {
-        const response = await fetch(
-          typedBridgeConfig.host + (typedBridgeConfig.host.endsWith('/') ? '' : '/') + methodName,
-          {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...typedBridgeConfig.headers
-            },
-            body: JSON.stringify(args)
-          }
-        )
+    {},
+    {
+        get(_, methodName: string) {
+            return async (args: any) => {
+                const response = await fetch(
+                    typedBridgeConfig.host + (typedBridgeConfig.host.endsWith('/') ? '' : '/') + methodName,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...typedBridgeConfig.headers
+                        },
+                        body: JSON.stringify(args)
+                    }
+                )
 
-        typedBridgeConfig.onResponse(response)
+                typedBridgeConfig.onResponse(response)
 
-        if (!response.ok) {
-            const errorText = await response.text()
-            throw new Error(errorText)
+                if (!response.ok) {
+                    const errorText = await response.text()
+                    console.error('REQ_FAILED', response.url, errorText)
+                    throw new Error(errorText)
+                }
+
+                return response.json().catch(error => {
+                    console.error('RES_NOT_JSON', response.url, error)
+                    throw new Error(error.message)
+                })
+            }
         }
-
-        return response.json()
-      }
     }
-  }
 ) as typeof _default
 
 export default typedBridge
