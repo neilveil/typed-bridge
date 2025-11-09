@@ -41,7 +41,7 @@ export const createBridge = (
     app.use(express.urlencoded({ extended: true }))
 
     // Typed bridge middleware
-    let requestId = 1
+    let requestId = 0
     app.use((req, res, next) => {
         const _req: any = req
 
@@ -53,18 +53,18 @@ export const createBridge = (
 
         if (ip === '::1') ip = '127.0.0.1'
 
-        // Bind data
-        _req.bind = {
-            id: 0,
-            ts: Date.now(),
-            args: {},
-            ip
-        }
-
         // Set typed bridge header
         res.setHeader('X-Powered-By', 'typed-bridge')
 
         requestId++
+
+        // Bind data
+        _req.bind = {
+            id: requestId,
+            ts: Date.now(),
+            args: {},
+            ip
+        }
 
         // Log request
         if (tbConfig.logs.request) {
