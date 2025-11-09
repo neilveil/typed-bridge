@@ -126,9 +126,12 @@ export const createBridge = (
 const bridgeHandler =
     (bridge: Bridge): any =>
     async (req: Request, res: Response) => {
+        let args: any = {}
+        let context: any = {}
+
         try {
             const path = req.path.split('/').pop() || ''
-            const args = req.body
+            args = req.body
 
             if (!path) throw new Error('Bridge not found!')
 
@@ -139,7 +142,7 @@ const bridgeHandler =
                 return res.status(404).json({ error })
             }
 
-            let context: any = {}
+            context = {}
 
             for (const middleware of middlewares) {
                 if (matchesPattern(path, middleware.pattern)) {
@@ -153,13 +156,18 @@ const bridgeHandler =
 
             res.json((await serverFunction(args, context)) || {})
         } catch (error: any) {
+            const id = (req as any).bind?.id
+
+            if (tbConfig.logs.argsOnError) console.error(`ARGS | ${id} ::`, JSON.stringify(args, null, 2))
+            if (tbConfig.logs.contextOnError) console.error(`CONTEXT | ${id} ::`, JSON.stringify(context, null, 2))
+
             if (Array.isArray(error.errors)) {
                 const keyPath = error.errors[0].path.join('/')
                 const errorMessage = (keyPath ? keyPath + ': ' : '') + error.errors[0].message
                 return res.status(400).send(errorMessage)
             }
 
-            if (tbConfig.logs.error) console.error(error)
+            if (tbConfig.logs.error) console.error(`ERROR | ${id} ::`, error)
 
             return res.status(500).json({ error: error.message })
         }
