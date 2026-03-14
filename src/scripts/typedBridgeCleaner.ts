@@ -55,7 +55,124 @@ export default typedBridge
 
 /**
  * Transformer #1:
+ * Resolve zod types to plain TypeScript types, and remove zod imports.
+ * Handles both Zod 3 (zod.TypeOf<ZodObject<S,UK,CA,Output,Input>>) and
+ * Zod 4 (zod.infer<ZodObject<Shape, UK>>) patterns.
+ */
+const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context => {
+    return sourceFile => {
+        const zodKeywordMap: Record<string, ts.KeywordTypeSyntaxKind> = {
+            ZodNumber: ts.SyntaxKind.NumberKeyword,
+            ZodString: ts.SyntaxKind.StringKeyword,
+            ZodBoolean: ts.SyntaxKind.BooleanKeyword,
+            ZodBigInt: ts.SyntaxKind.BigIntKeyword,
+            ZodUndefined: ts.SyntaxKind.UndefinedKeyword,
+            ZodVoid: ts.SyntaxKind.VoidKeyword,
+            ZodAny: ts.SyntaxKind.AnyKeyword,
+            ZodUnknown: ts.SyntaxKind.UnknownKeyword,
+            ZodNever: ts.SyntaxKind.NeverKeyword,
+        }
+
+        function getZodRef(node: ts.TypeNode): { name: string; typeArgs?: ts.NodeArray<ts.TypeNode> } | null {
+            if (
+                ts.isTypeReferenceNode(node) &&
+                ts.isQualifiedName(node.typeName) &&
+                ts.isIdentifier(node.typeName.left) &&
+                (node.typeName.left.text === 'zod' || node.typeName.left.text.startsWith('zod_'))
+            ) {
+                return { name: node.typeName.right.text, typeArgs: node.typeArguments }
+            }
+            return null
+        }
+
+        function resolveZodType(node: ts.TypeNode): ts.TypeNode {
+            const ref = getZodRef(node)
+            if (!ref) return node
+
+            const { name, typeArgs } = ref
+
+            if ((name === 'infer' || name === 'TypeOf') && typeArgs?.length === 1)
+                return resolveZodType(typeArgs[0])
+
+            const keyword = zodKeywordMap[name]
+            if (keyword !== undefined) return ts.factory.createKeywordTypeNode(keyword)
+            if (name === 'ZodNull') return ts.factory.createLiteralTypeNode(ts.factory.createNull())
+            if (name === 'ZodDate') return ts.factory.createTypeReferenceNode('Date')
+
+            if (name === 'ZodObject' && typeArgs) {
+                if (typeArgs.length >= 4) return resolveZodType(typeArgs[3])
+                if (typeArgs.length >= 1 && ts.isTypeLiteralNode(typeArgs[0])) return resolveShape(typeArgs[0])
+            }
+
+            if (name === 'ZodArray' && typeArgs && typeArgs.length >= 1)
+                return ts.factory.createArrayTypeNode(resolveZodType(typeArgs[0]))
+
+            if (name === 'ZodOptional' && typeArgs && typeArgs.length >= 1)
+                return ts.factory.createUnionTypeNode([
+                    resolveZodType(typeArgs[0]),
+                    ts.factory.createKeywordTypeNode(ts.SyntaxKind.UndefinedKeyword)
+                ])
+
+            if (name === 'ZodNullable' && typeArgs && typeArgs.length >= 1)
+                return ts.factory.createUnionTypeNode([
+                    resolveZodType(typeArgs[0]),
+                    ts.factory.createLiteralTypeNode(ts.factory.createNull())
+                ])
+
+            if (name === 'ZodDefault' && typeArgs && typeArgs.length >= 1) return resolveZodType(typeArgs[0])
+
+            return node
+        }
+
+        function resolveShape(shape: ts.TypeLiteralNode): ts.TypeLiteralNode {
+            const members = shape.members.map(member => {
+                if (ts.isPropertySignature(member) && member.type) {
+                    const ref = getZodRef(member.type)
+                    if (ref && ref.name === 'ZodOptional' && ref.typeArgs && ref.typeArgs.length >= 1) {
+                        return ts.factory.updatePropertySignature(
+                            member, member.modifiers, member.name,
+                            ts.factory.createToken(ts.SyntaxKind.QuestionToken),
+                            resolveZodType(ref.typeArgs[0])
+                        )
+                    }
+                    return ts.factory.updatePropertySignature(
+                        member, member.modifiers, member.name,
+                        member.questionToken, resolveZodType(member.type)
+                    )
+                }
+                return member
+            })
+            return ts.factory.createTypeLiteralNode(members)
+        }
+
+        function typeVisitor(node: ts.Node): ts.Node {
+            if (ts.isTypeNode(node)) {
+                const ref = getZodRef(node)
+                if (ref && (ref.name === 'infer' || ref.name === 'TypeOf')) return resolveZodType(node)
+            }
+            return ts.visitEachChild(node, typeVisitor, context)
+        }
+
+        const updatedStatements: ts.Statement[] = []
+        for (const stmt of sourceFile.statements) {
+            if (
+                ts.isImportDeclaration(stmt) &&
+                ts.isStringLiteral(stmt.moduleSpecifier) &&
+                (stmt.moduleSpecifier.text === 'zod' || stmt.moduleSpecifier.text.startsWith('zod/'))
+            ) {
+                continue
+            }
+            const transformed = ts.visitEachChild(stmt, typeVisitor, context)
+            updatedStatements.push(transformed as ts.Statement)
+        }
+        return ts.factory.updateSourceFile(sourceFile, ts.factory.createNodeArray(updatedStatements))
+    }
+}
+
+/**
+ * Transformer #2:
  * Remove the second parameter from any function type node.
+ * (Server context param should not appear in the client bridge.)
  */
 const removeSecondParamTransformer: ts.TransformerFactory<ts.SourceFile> = context => {
     return sourceFile => {
@@ -75,7 +192,7 @@ const removeSecondParamTransformer: ts.TransformerFactory<ts.SourceFile> = conte
 }
 
 /**
- * Transformer #2:
+ * Transformer #3:
  * Remove "export { _default as default }" if it exists.
  */
 const removeDefaultExportTransformer: ts.TransformerFactory<ts.SourceFile> = context => {
@@ -113,13 +230,6 @@ const removeDefaultExportTransformer: ts.TransformerFactory<ts.SourceFile> = con
 export default function cleanTsFile(src: string) {
     let sourceCode = fs.readFileSync(src, 'utf-8')
 
-    const eslintDisable = `/* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any */`
-
-    // Ensure the top comment is present if missing
-    if (!sourceCode.startsWith(eslintDisable)) {
-        sourceCode = eslintDisable + '\n' + sourceCode
-    }
-
     // Parse the source
     const sourceFile = ts.createSourceFile(
         path.basename(src),
@@ -130,13 +240,13 @@ export default function cleanTsFile(src: string) {
     )
 
     // Run the transformers
-    const result = ts.transform(sourceFile, [removeSecondParamTransformer, removeDefaultExportTransformer])
+    const result = ts.transform(sourceFile, [resolveZodTypesTransformer, removeSecondParamTransformer, removeDefaultExportTransformer])
 
     // Print final code
+    const eslintDisable = `/* eslint-disable */`
     const printer = ts.createPrinter()
-    const transformedCode = printer.printFile(result.transformed[0]).concat(proxySnippet())
+    const transformedCode = eslintDisable + '\n' + printer.printFile(result.transformed[0]).concat(proxySnippet())
 
     // Write back to the same file
     fs.writeFileSync(src, transformedCode, 'utf-8')
-    console.log(`Cleaned file: ${src}`)
 }

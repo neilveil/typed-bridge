@@ -8,11 +8,11 @@
     "repository": "neilveil/typed-bridge",
     "license": "MIT",
     "scripts": {
-        "start": "ts-node src/index.ts",
+        "start": "tsx src/index.ts",
         "dist": "rimraf dist && tsc",
-        "test:server": "nodemon --watch src --ext ts --exec 'ts-node -r tsconfig-paths/register src/demo/index.ts'",
-        "test:cli": "ts-node -r tsconfig-paths/register src/scripts/cli.ts gen-typed-bridge-client --src ./src/demo/bridge/index.ts --dest ./test/bridge.ts",
-        "test:bridge": "ts-node -r tsconfig-paths/register test/index.ts",
+        "test:server": "tsx --watch src/demo/index.ts",
+        "test:cli": "tsx src/scripts/cli.ts gen-typed-bridge-client --src ./src/demo/bridge/index.ts --dest ./test/bridge.ts",
+        "test:bridge": "tsx test/index.ts",
         "lint": "eslint",
         "docs": "cat readme.md docs/* > docs.md"
     },
@@ -28,7 +28,8 @@
         "express": "^5.1.0",
         "rollup": "^4.40.0",
         "rollup-plugin-dts": "^6.2.1",
-        "typescript": "^5.8.3"
+        "typescript": "^5.8.3",
+        "zod": "^4.3.6"
     },
     "devDependencies": {
         "@eslint/js": "^9.25.0",
@@ -44,10 +45,9 @@
         "nodemon": "^3.1.9",
         "prettier": "^3.5.3",
         "rimraf": "^6.0.1",
-        "ts-node": "^10.9.2",
         "tsconfig-paths": "^4.2.0",
-        "typescript-eslint": "^8.30.1",
-        "zod": "^3.24.3"
+        "tsx": "^4.21.0",
+        "typescript-eslint": "^8.30.1"
     },
     "keywords": [
         "api",

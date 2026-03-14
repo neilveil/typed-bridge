@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from '../../..'
 import * as types from './types'
 
 export interface User {
@@ -44,4 +44,11 @@ export const update = async (args: { id: number; name?: string; email?: string }
 
 export const fetchAll = async (): Promise<User[]> => {
     return users
+}
+
+export const longRunningTask = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) {
+        console.log(`Long running task: ${i + 1}/10`)
+        await new Promise(resolve => setTimeout(resolve, 1000))
+    }
 }

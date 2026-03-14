@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from '../../..'
 
 export const fetch = {
     args: z.object({

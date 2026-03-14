@@ -17,7 +17,7 @@ program
         await buildTypedBridge(src, dest)
         typedBridgeCleaner(dest)
 
-        console.log('\n✅ Bridge generated successfully!\n')
+        console.log(`✅ Typed bridge exported to ${dest}`)
     })
 
 program.parse()

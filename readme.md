@@ -280,6 +280,9 @@ tbConfig.logs.request = true // Enable request logging
 tbConfig.logs.response = true // Enable response logging
 tbConfig.logs.error = true // Enable error logging
 
+tbConfig.logs.argsOnError = true // Enable args logging on error
+tbConfig.logs.contextOnError = true // Enable context logging on error
+
 // Performance Configuration
 tbConfig.responseDelay = 0 // Custom response delay in milliseconds (useful for testing)
 ```

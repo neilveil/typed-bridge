@@ -42,6 +42,7 @@ export const createBridge = (
 
     // Typed bridge middleware
     let requestId = 0
+    let activeRequests = 0
     app.use((req, res, next) => {
         const _req: any = req
 
@@ -57,6 +58,7 @@ export const createBridge = (
         res.setHeader('X-Powered-By', 'typed-bridge')
 
         requestId++
+        activeRequests++
 
         // Bind data
         _req.bind = {
@@ -78,6 +80,7 @@ export const createBridge = (
         // Log response
         const startTime = Date.now()
         res.on('finish', () => {
+            activeRequests--
             const log = `RES | ${new Date().toISOString()} | ${requestId} :: ${res.statusCode} | ${Date.now() - startTime}ms`
             if (tbConfig.logs.response) console.log(res.statusCode < 400 ? chalk.green(log) : chalk.red(log))
         })
@@ -98,12 +101,17 @@ export const createBridge = (
             setTimeout(next, tbConfig.responseDelay)
         })
 
-    app.use(path, bridgeHandler(bridge))
-
     // Server health
     app.get(_path.join(path, 'health'), (req: Request, res: Response) => {
-        res.status(200).json({ status: 'OK' })
+        res.status(200).json({
+            status: 'OK',
+            activeRequests: activeRequests - 1,
+            totalRequests: requestId,
+            timestamp: new Date().toISOString()
+        })
     })
+
+    app.use(path, bridgeHandler(bridge))
 
     const server = app.listen(port, () => printStartLogs(port))
 
@@ -112,9 +120,10 @@ export const createBridge = (
         if (shuttingDown) return
         shuttingDown = true
 
-        server.close()
-        printStopLogs()
-        shutdownCallback()
+        server.close(() => {
+            printStopLogs()
+            shutdownCallback()
+        })
     }
 
     process.on('SIGINT', () => shutdown())
