@@ -5,7 +5,7 @@ import express, { Application, Request, Response } from 'express'
 import { Server } from 'http'
 import _path from 'path'
 import { tbConfig } from '..'
-import { matchesPattern, printStartLogs, printStopLogs } from '../helpers'
+import { getPatternSpecificity, matchesPattern, printStartLogs, printStopLogs } from '../helpers'
 
 type Bridge = { [key: string]: (...args: any[]) => Promise<any> }
 
@@ -153,14 +153,16 @@ const bridgeHandler =
 
             context = {}
 
-            for (const middleware of middlewares) {
-                if (matchesPattern(path, middleware.pattern)) {
-                    const result = await middleware.handler(req, res)
+            const matchingMiddlewares = middlewares
+                .filter(m => matchesPattern(path, m.pattern))
+                .sort((a, b) => getPatternSpecificity(a.pattern) - getPatternSpecificity(b.pattern))
 
-                    if (result?.next === false) return
+            for (const middleware of matchingMiddlewares) {
+                const result = await middleware.handler(req, res)
 
-                    if (result?.context) context = { ...context, ...result.context }
-                }
+                if (result?.next === false) return
+
+                if (result?.context) context = { ...context, ...result.context }
             }
 
             res.json((await serverFunction(args, context)) || {})

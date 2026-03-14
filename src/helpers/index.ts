@@ -39,6 +39,10 @@ export const printStopLogs = () => {
     console.log(seperator)
 }
 
+export const getPatternSpecificity = (pattern: string): number => {
+    return pattern.split('.').reduce((score, part) => score + (part === '*' ? 1 : 2), 0)
+}
+
 export const matchesPattern = (str: string, pattern: string) => {
     // Escape regex special chars except "*"
     const escaped = pattern.replace(/[-\\^$+?.()|[\]{}]/g, '\\$&')

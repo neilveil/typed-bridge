@@ -1,9 +1,22 @@
-import { createBridge, tbConfig } from '..'
+import { createBridge, onShutdown, tbConfig } from '..'
 import bridge from './bridge'
+import './middleware'
 
-tbConfig.logs.error = true
+// Logging
 tbConfig.logs.request = true
 tbConfig.logs.response = true
-// tbConfig.responseDelay = 1000
+tbConfig.logs.error = true
+tbConfig.logs.argsOnError = true
+tbConfig.logs.contextOnError = true
 
-createBridge(bridge, 8080, '/')
+const { app } = createBridge(bridge, 8080, '/bridge')
+
+// Extend the server with custom routes
+app.get('/status', (req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime() })
+})
+
+// Graceful shutdown
+onShutdown(() => {
+    console.log('Cleanup complete')
+})
