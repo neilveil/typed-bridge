@@ -1,4 +1,4 @@
-import { $z } from '../../..'
+import { z } from '../../..'
 import * as types from './types'
 
 export interface Product {
@@ -19,9 +19,9 @@ const products: Product[] = [
 type Context = { requestedAt: number; userId: number }
 
 export const fetch = async (
-    args: $z.infer<typeof types.fetch.args>,
+    args: z.infer<typeof types.fetch.args>,
     context: Context
-): Promise<$z.infer<typeof types.fetch.res>> => {
+): Promise<z.infer<typeof types.fetch.res>> => {
     args = types.fetch.args.parse(args)
 
     const product = products.find(p => p.id === args.id)
@@ -31,9 +31,9 @@ export const fetch = async (
 }
 
 export const create = async (
-    args: $z.infer<typeof types.create.args>,
+    args: z.infer<typeof types.create.args>,
     context: Context
-): Promise<$z.infer<typeof types.create.res>> => {
+): Promise<z.infer<typeof types.create.res>> => {
     args = types.create.args.parse(args)
 
     const product: Product = {

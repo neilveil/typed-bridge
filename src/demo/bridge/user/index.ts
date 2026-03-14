@@ -1,4 +1,4 @@
-import { $z } from '../../..'
+import { z } from '../../..'
 import * as types from './types'
 
 export interface User {
@@ -19,9 +19,9 @@ const users: User[] = [
 type Context = { requestedAt: number; userId: number }
 
 export const fetch = async (
-    args: $z.infer<typeof types.fetch.args>,
+    args: z.infer<typeof types.fetch.args>,
     context: Context
-): Promise<$z.infer<typeof types.fetch.res>> => {
+): Promise<z.infer<typeof types.fetch.res>> => {
     args = types.fetch.args.parse(args)
 
     const user = users.find(u => u.id === args.id)
@@ -31,9 +31,9 @@ export const fetch = async (
 }
 
 export const create = async (
-    args: $z.infer<typeof types.create.args>,
+    args: z.infer<typeof types.create.args>,
     context: Context
-): Promise<$z.infer<typeof types.create.res>> => {
+): Promise<z.infer<typeof types.create.res>> => {
     args = types.create.args.parse(args)
 
     const user: User = {
@@ -47,10 +47,7 @@ export const create = async (
     return user
 }
 
-export const update = async (
-    args: { id: number; name?: string; email?: string },
-    context: Context
-): Promise<User> => {
+export const update = async (args: { id: number; name?: string; email?: string }, context: Context): Promise<User> => {
     const user = users.find(u => u.id === args.id)
     if (!user) throw new Error(`User with ID ${args.id} not found`)
 

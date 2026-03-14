@@ -1,4 +1,4 @@
-import { $z } from '../../..'
+import { z } from '../../..'
 import * as types from './types'
 
 export interface OrderItem {
@@ -38,9 +38,9 @@ const orders: Order[] = []
 type Context = { requestedAt: number; userId: number }
 
 export const create = async (
-    args: $z.infer<typeof types.create.args>,
+    args: z.infer<typeof types.create.args>,
     context: Context
-): Promise<$z.infer<typeof types.create.res>> => {
+): Promise<z.infer<typeof types.create.res>> => {
     args = types.create.args.parse(args)
 
     const items = args.items.map(item => ({
@@ -56,7 +56,9 @@ export const create = async (
         total: items.reduce((sum, i) => sum + i.price * i.quantity, 0),
         items,
         shippingAddress: { ...args.shippingAddress, country: args.shippingAddress.country ?? 'US' },
-        billingAddress: args.billingAddress ? { ...args.billingAddress, country: args.billingAddress.country ?? 'US' } : null,
+        billingAddress: args.billingAddress
+            ? { ...args.billingAddress, country: args.billingAddress.country ?? 'US' }
+            : null,
         isGift: args.isGift,
         giftMessage: args.giftMessage,
         createdAt: new Date(),
@@ -75,9 +77,9 @@ export const create = async (
 }
 
 export const fetch = async (
-    args: $z.infer<typeof types.fetch.args>,
+    args: z.infer<typeof types.fetch.args>,
     context: Context
-): Promise<$z.infer<typeof types.fetch.res>> => {
+): Promise<z.infer<typeof types.fetch.res>> => {
     args = types.fetch.args.parse(args)
 
     const order = orders.find(o => o.id === args.id)
@@ -87,16 +89,17 @@ export const fetch = async (
 }
 
 export const update = async (
-    args: $z.infer<typeof types.update.args>,
+    args: z.infer<typeof types.update.args>,
     context: Context
-): Promise<$z.infer<typeof types.update.res>> => {
+): Promise<z.infer<typeof types.update.res>> => {
     args = types.update.args.parse(args)
 
     const order = orders.find(o => o.id === args.id)
     if (!order) throw new Error(`Order with ID ${args.id} not found`)
 
     if (args.status) order.status = args.status
-    if (args.shippingAddress) order.shippingAddress = { ...args.shippingAddress, country: args.shippingAddress.country ?? 'US' }
+    if (args.shippingAddress)
+        order.shippingAddress = { ...args.shippingAddress, country: args.shippingAddress.country ?? 'US' }
     if (args.giftMessage !== undefined) order.giftMessage = args.giftMessage ?? null
     order.updatedAt = new Date()
 
@@ -108,9 +111,9 @@ export const list = async (): Promise<Order[]> => {
 }
 
 export const resolve = async (
-    args: $z.infer<typeof types.resolve.args>,
+    args: z.infer<typeof types.resolve.args>,
     context: Context
-): Promise<$z.infer<typeof types.resolve.res>> => {
+): Promise<z.infer<typeof types.resolve.res>> => {
     args = types.resolve.args.parse(args)
 
     const order = orders.find(o => o.id === args.id)
@@ -128,9 +131,9 @@ export const resolve = async (
 }
 
 export const statusFilter = async (
-    args: $z.infer<typeof types.statusFilter.args>,
+    args: z.infer<typeof types.statusFilter.args>,
     context: Context
-): Promise<$z.infer<typeof types.statusFilter.res>> => {
+): Promise<z.infer<typeof types.statusFilter.res>> => {
     args = types.statusFilter.args.parse(args)
 
     return {
@@ -143,9 +146,9 @@ export const statusFilter = async (
 const orderTags: Map<number, (string | number)[]> = new Map()
 
 export const tag = async (
-    args: $z.infer<typeof types.tag.args>,
+    args: z.infer<typeof types.tag.args>,
     context: Context
-): Promise<$z.infer<typeof types.tag.res>> => {
+): Promise<z.infer<typeof types.tag.res>> => {
     args = types.tag.args.parse(args)
 
     const order = orders.find(o => o.id === args.orderId)
@@ -159,8 +162,8 @@ export const tag = async (
 }
 
 export const primitives = async (
-    args: $z.infer<typeof types.primitives.args>
-): Promise<$z.infer<typeof types.primitives.res>> => {
+    args: z.infer<typeof types.primitives.args>
+): Promise<z.infer<typeof types.primitives.res>> => {
     args = types.primitives.args.parse(args)
 
     return {

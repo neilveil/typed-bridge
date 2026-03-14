@@ -217,22 +217,22 @@ createMiddleware('user.*', async (req, res) => {
 
 ## Zod Validation
 
-Typed Bridge ships with Zod and re-exports it as `$z`. Define schemas and use them in handlers:
+Typed Bridge ships with Zod and re-exports it as `z`. Define schemas and use them in handlers:
 
 ### 1. Declare Schemas
 
 `types.ts`:
 
 ```ts
-import { $z } from 'typed-bridge'
+import { z } from 'typed-bridge'
 
 export const fetch = {
-    args: $z.object({
-        id: $z.number().min(1)
+    args: z.object({
+        id: z.number().min(1)
     }),
-    res: $z.object({
-        id: $z.number(),
-        name: $z.string()
+    res: z.object({
+        id: z.number(),
+        name: z.string()
     })
 }
 ```
@@ -240,13 +240,13 @@ export const fetch = {
 ### 2. Use in Handler
 
 ```ts
-import { $z } from 'typed-bridge'
+import { z } from 'typed-bridge'
 import * as types from './types'
 
 export const fetch = async (
-    args: $z.infer<typeof types.fetch.args>,
+    args: z.infer<typeof types.fetch.args>,
     context: { id: number }
-): Promise<$z.infer<typeof types.fetch.res>> => {
+): Promise<z.infer<typeof types.fetch.res>> => {
     args = types.fetch.args.parse(args)
 
     const user = users.find(user => user.id === args.id)
@@ -310,23 +310,23 @@ onShutdown(() => {
 
 ### vs tRPC
 
-| | **Typed Bridge** | **tRPC** |
-|---|---|---|
-| **Setup** | Define functions, generate typed client, done | Routers, procedures, adapters |
-| **Monorepo required?** | No, generated client is a standalone file | Practically yes, for type inference |
-| **Frontend framework** | Any (React, Vue, Angular, RN, etc.) | React-first, adapters for others |
-| **Learning curve** | Minimal, plain async functions | Moderate, procedures, context, middleware patterns |
-| **Runtime validation** | Zod (built-in) | Zod or others via `.input()` |
+|                        | **Typed Bridge**                              | **tRPC**                                           |
+| ---------------------- | --------------------------------------------- | -------------------------------------------------- |
+| **Setup**              | Define functions, generate typed client, done | Routers, procedures, adapters                      |
+| **Monorepo required?** | No, generated client is a standalone file     | Practically yes, for type inference                |
+| **Frontend framework** | Any (React, Vue, Angular, RN, etc.)           | React-first, adapters for others                   |
+| **Learning curve**     | Minimal, plain async functions                | Moderate, procedures, context, middleware patterns |
+| **Runtime validation** | Zod (built-in)                                | Zod or others via `.input()`                       |
 
 ### vs GraphQL
 
-| | **Typed Bridge** | **GraphQL** |
-|---|---|---|
-| **Setup** | Define functions, generate typed client, done | Schema definition, resolvers, codegen |
-| **Type safety** | Automatic from function signatures | Requires codegen toolchain (e.g. GraphQL Code Generator) |
-| **Overfetching** | Not applicable, you control what each function returns | Solved by design with field selection |
-| **Learning curve** | Minimal, plain TypeScript | Significant: SDL, resolvers, fragments, queries, mutations |
-| **Best for** | App-specific backends, internal APIs | Public APIs, multi-client data graphs |
+|                    | **Typed Bridge**                                       | **GraphQL**                                                |
+| ------------------ | ------------------------------------------------------ | ---------------------------------------------------------- |
+| **Setup**          | Define functions, generate typed client, done          | Schema definition, resolvers, codegen                      |
+| **Type safety**    | Automatic from function signatures                     | Requires codegen toolchain (e.g. GraphQL Code Generator)   |
+| **Overfetching**   | Not applicable, you control what each function returns | Solved by design with field selection                      |
+| **Learning curve** | Minimal, plain TypeScript                              | Significant: SDL, resolvers, fragments, queries, mutations |
+| **Best for**       | App-specific backends, internal APIs                   | Public APIs, multi-client data graphs                      |
 
 Typed Bridge is for teams that want **type-safe RPCs without the architecture overhead**. You write normal TypeScript functions on the server, and the client just works.
 
@@ -351,7 +351,7 @@ src/
 ### Adding a new route
 
 1. Create handler in `bridge/<module>/index.ts`
-2. If using Zod, add schemas in `<module>/types.ts` using `$z` from `typed-bridge`
+2. If using Zod, add schemas in `<module>/types.ts` using `z` from `typed-bridge`
 3. Register route in `bridge/index.ts` as `'module.action': module.action`
 4. If middleware needed, add `createMiddleware(...)` and import the file in server entry
 5. Run `gen:typed-bridge-client` to regenerate the typed client
@@ -361,4 +361,3 @@ src/
 ## Developer
 
 Developed & maintained by [neilveil](https://github.com/neilveil). Give a star to support this project!
-
