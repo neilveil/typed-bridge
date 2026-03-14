@@ -107,6 +107,57 @@ export const list = async (): Promise<Order[]> => {
     return orders
 }
 
+export const resolve = async (
+    args: $z.infer<typeof types.resolve.args>,
+    context: Context
+): Promise<$z.infer<typeof types.resolve.res>> => {
+    args = types.resolve.args.parse(args)
+
+    const order = orders.find(o => o.id === args.id)
+    if (!order) return { status: 'not_found' }
+
+    return {
+        status: 'found',
+        order: {
+            id: order.id,
+            customerName: `Customer #${order.customerId}`,
+            orderStatus: order.status as any,
+            total: order.total
+        }
+    }
+}
+
+export const statusFilter = async (
+    args: $z.infer<typeof types.statusFilter.args>,
+    context: Context
+): Promise<$z.infer<typeof types.statusFilter.res>> => {
+    args = types.statusFilter.args.parse(args)
+
+    return {
+        orders: orders
+            .filter(o => o.status === args.status)
+            .map(o => ({ id: o.id, status: o.status as any, total: o.total }))
+    }
+}
+
+const orderTags: Map<number, (string | number)[]> = new Map()
+
+export const tag = async (
+    args: $z.infer<typeof types.tag.args>,
+    context: Context
+): Promise<$z.infer<typeof types.tag.res>> => {
+    args = types.tag.args.parse(args)
+
+    const order = orders.find(o => o.id === args.orderId)
+    if (!order) throw new Error(`Order with ID ${args.orderId} not found`)
+
+    const tags = orderTags.get(args.orderId) || []
+    tags.push(args.tag)
+    orderTags.set(args.orderId, tags)
+
+    return { orderId: args.orderId, tag: args.tag, appliedAt: new Date() }
+}
+
 export const primitives = async (
     args: $z.infer<typeof types.primitives.args>
 ): Promise<$z.infer<typeof types.primitives.res>> => {

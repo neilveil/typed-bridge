@@ -77,6 +77,61 @@ export const update = {
     })
 }
 
+// --- resolve: exercises ZodDiscriminatedUnion + ZodLiteral + ZodEnum ---
+
+const orderStatusEnum = $z.enum(['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'])
+
+export const resolve = {
+    args: $z.object({
+        id: $z.number().min(1)
+    }),
+    res: $z.discriminatedUnion('status', [
+        $z.object({
+            status: $z.literal('found'),
+            order: $z.object({
+                id: $z.number(),
+                customerName: $z.string(),
+                orderStatus: orderStatusEnum,
+                total: $z.number()
+            })
+        }),
+        $z.object({
+            status: $z.literal('not_found')
+        })
+    ])
+}
+
+// --- statusFilter: exercises ZodEnum in args and response ---
+
+export const statusFilter = {
+    args: $z.object({
+        status: orderStatusEnum
+    }),
+    res: $z.object({
+        orders: $z.array(
+            $z.object({
+                id: $z.number(),
+                status: orderStatusEnum,
+                total: $z.number()
+            })
+        )
+    })
+}
+
+// --- tag: exercises ZodUnion ---
+
+export const tag = {
+    args: $z.object({
+        orderId: $z.number().min(1),
+        tag: $z.union([$z.string(), $z.number()])
+    }),
+    res: $z.object({
+        orderId: $z.number(),
+        tag: $z.union([$z.string(), $z.number()]),
+        appliedAt: $z.date()
+    })
+}
+
 // --- primitives: exercises all remaining keyword types ---
 
 export const primitives = {

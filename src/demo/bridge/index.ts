@@ -17,5 +17,8 @@ export default {
     'order.fetch': order.fetch,
     'order.update': order.update,
     'order.list': order.list,
+    'order.resolve': order.resolve,
+    'order.statusFilter': order.statusFilter,
+    'order.tag': order.tag,
     'order.primitives': order.primitives
 }

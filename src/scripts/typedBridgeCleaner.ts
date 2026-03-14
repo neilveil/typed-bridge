@@ -55,9 +55,7 @@ export default typedBridge
 
 /**
  * Transformer #1:
- * Resolve zod types to plain TypeScript types, and remove zod imports.
- * Handles both Zod 3 (zod.TypeOf<ZodObject<S,UK,CA,Output,Input>>) and
- * Zod 4 (zod.infer<ZodObject<Shape, UK>>) patterns.
+ * Resolve Zod 4 types to plain TypeScript types, and remove zod imports.
  */
 const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context => {
     return sourceFile => {
@@ -70,7 +68,7 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
             ZodVoid: ts.SyntaxKind.VoidKeyword,
             ZodAny: ts.SyntaxKind.AnyKeyword,
             ZodUnknown: ts.SyntaxKind.UnknownKeyword,
-            ZodNever: ts.SyntaxKind.NeverKeyword,
+            ZodNever: ts.SyntaxKind.NeverKeyword
         }
 
         function getZodRef(node: ts.TypeNode): { name: string; typeArgs?: ts.NodeArray<ts.TypeNode> } | null {
@@ -78,10 +76,19 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
                 ts.isTypeReferenceNode(node) &&
                 ts.isQualifiedName(node.typeName) &&
                 ts.isIdentifier(node.typeName.left) &&
-                (node.typeName.left.text === 'zod' || node.typeName.left.text.startsWith('zod_'))
+                (node.typeName.left.text === 'z' ||
+                    node.typeName.left.text === 'zod' ||
+                    node.typeName.left.text.startsWith('zod_'))
             ) {
                 return { name: node.typeName.right.text, typeArgs: node.typeArguments }
             }
+            return null
+        }
+
+        function unwrapReadonlyTuple(node: ts.TypeNode): ts.TupleTypeNode | null {
+            if (ts.isTupleTypeNode(node)) return node
+            if (ts.isTypeOperatorNode(node) && node.operator === ts.SyntaxKind.ReadonlyKeyword && ts.isTupleTypeNode(node.type))
+                return node.type
             return null
         }
 
@@ -91,18 +98,15 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
 
             const { name, typeArgs } = ref
 
-            if ((name === 'infer' || name === 'TypeOf') && typeArgs?.length === 1)
-                return resolveZodType(typeArgs[0])
+            if (name === 'infer' && typeArgs?.length === 1) return resolveZodType(typeArgs[0])
 
             const keyword = zodKeywordMap[name]
             if (keyword !== undefined) return ts.factory.createKeywordTypeNode(keyword)
             if (name === 'ZodNull') return ts.factory.createLiteralTypeNode(ts.factory.createNull())
             if (name === 'ZodDate') return ts.factory.createTypeReferenceNode('Date')
 
-            if (name === 'ZodObject' && typeArgs) {
-                if (typeArgs.length >= 4) return resolveZodType(typeArgs[3])
-                if (typeArgs.length >= 1 && ts.isTypeLiteralNode(typeArgs[0])) return resolveShape(typeArgs[0])
-            }
+            if (name === 'ZodObject' && typeArgs && typeArgs.length >= 1 && ts.isTypeLiteralNode(typeArgs[0]))
+                return resolveShape(typeArgs[0])
 
             if (name === 'ZodArray' && typeArgs && typeArgs.length >= 1)
                 return ts.factory.createArrayTypeNode(resolveZodType(typeArgs[0]))
@@ -121,6 +125,29 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
 
             if (name === 'ZodDefault' && typeArgs && typeArgs.length >= 1) return resolveZodType(typeArgs[0])
 
+            if (name === 'ZodLiteral' && typeArgs && typeArgs.length >= 1) return typeArgs[0]
+
+            // v4: ZodEnum<{pending: "pending", confirmed: "confirmed", ...}>
+            if (name === 'ZodEnum' && typeArgs && typeArgs.length >= 1 && ts.isTypeLiteralNode(typeArgs[0])) {
+                const types: ts.TypeNode[] = []
+                for (const member of typeArgs[0].members) {
+                    if (ts.isPropertySignature(member) && member.type) types.push(member.type)
+                }
+                if (types.length > 0) return ts.factory.createUnionTypeNode(types)
+            }
+
+            // v4: ZodDiscriminatedUnion<[ZodObject<...>, ...], "disc">
+            if (name === 'ZodDiscriminatedUnion' && typeArgs && typeArgs.length >= 1) {
+                const tuple = unwrapReadonlyTuple(typeArgs[0])
+                if (tuple) return ts.factory.createUnionTypeNode(tuple.elements.map(e => resolveZodType(e)))
+            }
+
+            // v4: ZodUnion<readonly [ZodString, ZodNumber]>
+            if (name === 'ZodUnion' && typeArgs && typeArgs.length >= 1) {
+                const tuple = unwrapReadonlyTuple(typeArgs[0])
+                if (tuple) return ts.factory.createUnionTypeNode(tuple.elements.map(e => resolveZodType(e)))
+            }
+
             return node
         }
 
@@ -130,14 +157,19 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
                     const ref = getZodRef(member.type)
                     if (ref && ref.name === 'ZodOptional' && ref.typeArgs && ref.typeArgs.length >= 1) {
                         return ts.factory.updatePropertySignature(
-                            member, member.modifiers, member.name,
+                            member,
+                            member.modifiers,
+                            member.name,
                             ts.factory.createToken(ts.SyntaxKind.QuestionToken),
                             resolveZodType(ref.typeArgs[0])
                         )
                     }
                     return ts.factory.updatePropertySignature(
-                        member, member.modifiers, member.name,
-                        member.questionToken, resolveZodType(member.type)
+                        member,
+                        member.modifiers,
+                        member.name,
+                        member.questionToken,
+                        resolveZodType(member.type)
                     )
                 }
                 return member
@@ -148,7 +180,7 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
         function typeVisitor(node: ts.Node): ts.Node {
             if (ts.isTypeNode(node)) {
                 const ref = getZodRef(node)
-                if (ref && (ref.name === 'infer' || ref.name === 'TypeOf')) return resolveZodType(node)
+                if (ref) return resolveZodType(node)
             }
             return ts.visitEachChild(node, typeVisitor, context)
         }
@@ -228,7 +260,7 @@ const removeDefaultExportTransformer: ts.TransformerFactory<ts.SourceFile> = con
  *  3. Writes the final file output.
  */
 export default function cleanTsFile(src: string) {
-    let sourceCode = fs.readFileSync(src, 'utf-8')
+    const sourceCode = fs.readFileSync(src, 'utf-8')
 
     // Parse the source
     const sourceFile = ts.createSourceFile(
@@ -240,7 +272,11 @@ export default function cleanTsFile(src: string) {
     )
 
     // Run the transformers
-    const result = ts.transform(sourceFile, [resolveZodTypesTransformer, removeSecondParamTransformer, removeDefaultExportTransformer])
+    const result = ts.transform(sourceFile, [
+        resolveZodTypesTransformer,
+        removeSecondParamTransformer,
+        removeDefaultExportTransformer
+    ])
 
     // Print final code
     const eslintDisable = `/* eslint-disable */`

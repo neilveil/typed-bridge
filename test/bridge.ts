@@ -174,6 +174,36 @@ declare const _default: {
         updatedAt: Date;
     }>;
     'order.list': () => Promise<Order[]>;
+    'order.resolve': (args: {
+        id: number;
+    }) => Promise<{
+        status: "found";
+        order: {
+            id: number;
+            customerName: string;
+            orderStatus: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
+            total: number;
+        };
+    } | {
+        status: "not_found";
+    }>;
+    'order.statusFilter': (args: {
+        status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
+    }) => Promise<{
+        orders: {
+            id: number;
+            status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
+            total: number;
+        }[];
+    }>;
+    'order.tag': (args: {
+        orderId: number;
+        tag: string | number;
+    }) => Promise<{
+        orderId: number;
+        tag: string | number;
+        appliedAt: Date;
+    }>;
     'order.primitives': (args: {
         key: string;
     }) => Promise<{
