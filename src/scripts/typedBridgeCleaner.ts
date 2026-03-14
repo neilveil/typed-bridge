@@ -127,6 +127,10 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
 
             if (name === 'ZodLiteral' && typeArgs && typeArgs.length >= 1) return typeArgs[0]
 
+            // v4: ZodRecord<ZodString, ZodNumber> -> Record<string, number>
+            if (name === 'ZodRecord' && typeArgs && typeArgs.length >= 2)
+                return ts.factory.createTypeReferenceNode('Record', [resolveZodType(typeArgs[0]), resolveZodType(typeArgs[1])])
+
             // v4: ZodEnum<{pending: "pending", confirmed: "confirmed", ...}>
             if (name === 'ZodEnum' && typeArgs && typeArgs.length >= 1 && ts.isTypeLiteralNode(typeArgs[0])) {
                 const types: ts.TypeNode[] = []
@@ -134,6 +138,10 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
                     if (ts.isPropertySignature(member) && member.type) types.push(member.type)
                 }
                 if (types.length > 0) return ts.factory.createUnionTypeNode(types)
+
+                // ZodEnum<{[x: string]: string}> -> string (dynamic enum with index signature)
+                if (typeArgs[0].members.some(m => ts.isIndexSignatureDeclaration(m)))
+                    return ts.factory.createKeywordTypeNode(ts.SyntaxKind.StringKeyword)
             }
 
             // v4: ZodDiscriminatedUnion<[ZodObject<...>, ...], "disc">
@@ -190,7 +198,7 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
             if (
                 ts.isImportDeclaration(stmt) &&
                 ts.isStringLiteral(stmt.moduleSpecifier) &&
-                (stmt.moduleSpecifier.text === 'zod' || stmt.moduleSpecifier.text.startsWith('zod/'))
+                (stmt.moduleSpecifier.text === 'zod' || stmt.moduleSpecifier.text.startsWith('zod/') || stmt.moduleSpecifier.text === 'typed-bridge')
             ) {
                 continue
             }
