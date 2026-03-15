@@ -120,6 +120,7 @@ export const createBridge = (
         if (shuttingDown) return
         shuttingDown = true
 
+        // Server.close waits for all active connections to be completed & stops accepting new connections
         server.close(() => {
             printStopLogs()
             shutdownCallback()
