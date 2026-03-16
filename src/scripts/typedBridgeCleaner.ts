@@ -76,9 +76,9 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
                 ts.isTypeReferenceNode(node) &&
                 ts.isQualifiedName(node.typeName) &&
                 ts.isIdentifier(node.typeName.left) &&
-                (node.typeName.left.text === 'z' ||
-                    node.typeName.left.text === 'zod' ||
-                    node.typeName.left.text.startsWith('zod_'))
+(/^z(\$\d+)?$/.test(node.typeName.left.text) ||
+                    /^zod(\$\d+)?$/.test(node.typeName.left.text) ||
+                    /^zod_/.test(node.typeName.left.text))
             ) {
                 return { name: node.typeName.right.text, typeArgs: node.typeArguments }
             }
