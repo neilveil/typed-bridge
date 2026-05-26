@@ -13,7 +13,8 @@
         "test:server": "tsx --watch src/demo/index.ts",
         "test:cli": "tsx src/scripts/cli.ts gen-typed-bridge-client --src ./src/demo/bridge/index.ts --dest ./test/bridge.ts",
         "test:bridge": "tsx test/index.ts",
-        "lint": "eslint"
+        "lint": "eslint",
+        "prepublishOnly": "npm run dist"
     },
     "bin": {
         "typed-bridge": "./dist/scripts/cli.js"
