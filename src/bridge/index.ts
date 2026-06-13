@@ -213,9 +213,13 @@ const bridgeHandler =
             if (tbConfig.logs.argsOnError) console.error(`ARGS | ${id} ::`, JSON.stringify(args, null, 2))
             if (tbConfig.logs.contextOnError) console.error(`CONTEXT | ${id} ::`, JSON.stringify(context, null, 2))
 
-            if (Array.isArray(error.errors)) {
-                const keyPath = error.errors[0].path.join('/')
-                const errorMessage = (keyPath ? keyPath + ': ' : '') + error.errors[0].message
+            // Zod validation errors → 400. Zod v4 exposes `.issues`; `.errors` kept as a fallback
+            // for any Zod v3 consumer. Without the `.issues` branch every validation failure under
+            // Zod v4 (the version this package depends on) would fall through to a 500.
+            const issues = Array.isArray(error.issues) ? error.issues : error.errors
+            if (Array.isArray(issues) && issues.length) {
+                const keyPath = issues[0].path.join('/')
+                const errorMessage = (keyPath ? keyPath + ': ' : '') + issues[0].message
                 return res.status(400).send(errorMessage)
             }
 
