@@ -71,6 +71,19 @@ export function schemaToJSONSchema(schema: z.ZodType) {
     return jsonSchema
 }
 
+/**
+ * Build the input schema for a tool surface (MCP / LLM). Tool inputs are always a named-property
+ * object, so an absent `args` or a non-object arg schema (e.g. `z.void()`, a top-level array or
+ * primitive) is normalized to the empty-object schema. MCP clients reject a `tools/list` response
+ * whose `inputSchema.type` is not `"object"`, so this keeps every entry representable as a tool.
+ */
+export function toToolInputSchema(args?: z.ZodType) {
+    if (!args) return { ...NO_ARGS_SCHEMA }
+    const schema = schemaToJSONSchema(args)
+    if (!schema || schema.type !== 'object') return { ...NO_ARGS_SCHEMA }
+    return schema
+}
+
 // --- Direct tool generation (attach all tools to LLM) ---
 
 export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) {
@@ -86,7 +99,7 @@ export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) 
         if (entry.llm === false) continue
 
         const description = entry.description
-        const parameters = entry.args ? schemaToJSONSchema(entry.args) : NO_ARGS_SCHEMA
+        const parameters = toToolInputSchema(entry.args)
 
         let response: unknown
         if (includeResponse) response = schemaToJSONSchema(entry.res)
@@ -217,7 +230,7 @@ export function toolDescribe(entries: BridgeEntries, name: string) {
     return {
         name,
         description: entry.description,
-        args: entry.args ? schemaToJSONSchema(entry.args) : NO_ARGS_SCHEMA,
+        args: toToolInputSchema(entry.args),
         response: schemaToJSONSchema(entry.res)
     }
 }
