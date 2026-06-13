@@ -19,7 +19,7 @@ export const create = {
     description: 'Create a new user account',
     args: z.object({
         name: z.string().min(1).describe('Full name of the user'),
-        email: z.string().email().describe('Email address')
+        email: z.email().describe('Email address')
     }),
     res: userSchema
 }
@@ -29,7 +29,7 @@ export const update = {
     args: z.object({
         id: z.number().min(1).describe('User ID to update'),
         name: z.string().optional().describe('New name'),
-        email: z.string().email().optional().describe('New email')
+        email: z.email().optional().describe('New email')
     }),
     res: userSchema
 }
