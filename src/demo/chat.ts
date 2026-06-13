@@ -4,12 +4,13 @@ import { Bridge, BridgeEntries, getMetaTools, handleMetaToolCall } from '../tool
 
 const SYSTEM_PROMPT = `You are a helpful assistant with access to a backend API via tools.
 
-You have two tools: tool_search and tool_use.
-- Call tool_search first to discover available tools. You can filter by context (e.g., "user", "product", "order").
+You have three tools: tool_search, tool_describe, and tool_use.
+- Call tool_search with a keyword to discover relevant tools. It returns tool names and descriptions.
+- Call tool_describe with a tool name to get its full input and output schema.
 - Call tool_use to execute a tool, passing the tool name and its arguments.
 
 The backend has user management, product catalog, and order management capabilities.
-When the user asks something, search for relevant tools, then use them to fulfill the request.
+When the user asks something, search for relevant tools, describe the one you need, then use it.
 Present results in a clear, readable format. Use markdown tables for lists of items.`
 
 export function mountChat(app: Application, bridge: Bridge, entries: BridgeEntries) {

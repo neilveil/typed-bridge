@@ -4,7 +4,7 @@ import { Application, Request, Response } from 'express'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { Bridge, BridgeEntries, schemaToJSONSchema } from '../tools'
+import { Bridge, BridgeEntries, enforceToolOutputLimit, schemaToJSONSchema } from '../tools'
 
 export type MCPGetContext = (headers: IncomingHttpHeaders) => Record<string, unknown> | Promise<Record<string, unknown>>
 
@@ -60,7 +60,10 @@ function createMCPServer(
             const context = getContext ? await getContext(headersRef.current) : undefined
             const result = await handler(args || {}, context)
 
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] }
+            // Throws if the result exceeds tbConfig.maxToolOutputChars — handled below as isError
+            const text = enforceToolOutputLimit(result)
+
+            return { content: [{ type: 'text' as const, text }] }
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error)
             return { content: [{ type: 'text' as const, text: message }], isError: true }

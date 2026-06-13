@@ -4,31 +4,28 @@ import ts from 'typescript'
 
 // Snippet to inject at the end
 const proxySnippet = () => `
-type typedBridgeConfig = {
+type TypedBridgeConfig = {
     host: string
-    headers: { [key: string]: string }
-    onResponse: (res: Response) => void
+    headers: Record<string, string>
+    onResponse: (response: Response) => void
 }
 
-export const typedBridgeConfig: typedBridgeConfig = {
+export const typedBridgeConfig: TypedBridgeConfig = {
     host: '',
     headers: { 'Content-Type': 'application/json' },
-    onResponse: (res: Response) => {}
+    onResponse: () => {}
 }
 
 export const typedBridge = new Proxy(
     {},
     {
         get(_, methodName: string) {
-            return async (args: any) => {
+            return async (args: unknown) => {
                 const response = await fetch(
                     typedBridgeConfig.host + (typedBridgeConfig.host.endsWith('/') ? '' : '/') + methodName,
                     {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            ...typedBridgeConfig.headers
-                        },
+                        headers: typedBridgeConfig.headers,
                         body: JSON.stringify(args)
                     }
                 )
@@ -48,7 +45,7 @@ export const typedBridge = new Proxy(
             }
         }
     }
-) as typeof _default
+) as TypedBridge
 
 export default typedBridge
 `
@@ -240,7 +237,22 @@ const removeSecondParamTransformer: ts.TransformerFactory<ts.SourceFile> = conte
  */
 const unwrapBridgeEntryTransformer: ts.TransformerFactory<ts.SourceFile> = _context => {
     return sourceFile => {
-        const helperTypes = new Set(['BridgeEntry', 'BridgeEntries', 'ExtractHandlers'])
+        const helperTypes = new Set(['Bridge', 'BridgeEntry', 'BridgeEntries', 'ExtractHandlers'])
+
+        // Detect the variable bound to the default export. rollup-plugin-dts names an
+        // anonymous `export default defineBridge(...)` as `_default`, but keeps the
+        // user's identifier (e.g. `bridge`) when they do `const bridge = ...; export default bridge`.
+        let defaultName: string | undefined
+        for (const stmt of sourceFile.statements) {
+            if (ts.isExportAssignment(stmt) && !stmt.isExportEquals && ts.isIdentifier(stmt.expression)) {
+                defaultName = stmt.expression.text
+            }
+            if (ts.isExportDeclaration(stmt) && stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
+                for (const el of stmt.exportClause.elements) {
+                    if (el.name.text === 'default') defaultName = (el.propertyName ?? el.name).text
+                }
+            }
+        }
 
         function resolveHandlers(typeLiteral: ts.TypeLiteralNode): ts.TypeLiteralNode {
             const members = typeLiteral.members.map(member => {
@@ -282,34 +294,34 @@ const unwrapBridgeEntryTransformer: ts.TransformerFactory<ts.SourceFile> = _cont
                 if (decl && ts.isIdentifier(decl.name) && decl.name.text === 'entries') continue
             }
 
-            // Resolve ExtractHandlers<T> on _default
+            // Convert the default-export variable to the TypedBridge type alias
             if (ts.isVariableStatement(stmt)) {
                 const decl = stmt.declarationList.declarations[0]
-                if (
-                    decl &&
-                    ts.isIdentifier(decl.name) &&
-                    decl.name.text === '_default' &&
-                    decl.type &&
-                    ts.isTypeReferenceNode(decl.type) &&
-                    ts.isIdentifier(decl.type.typeName) &&
-                    decl.type.typeName.text === 'ExtractHandlers' &&
-                    decl.type.typeArguments?.length === 1 &&
-                    ts.isTypeLiteralNode(decl.type.typeArguments[0])
-                ) {
-                    const resolved = resolveHandlers(decl.type.typeArguments[0])
-                    const newDecl = ts.factory.updateVariableDeclaration(
-                        decl,
-                        decl.name,
-                        decl.exclamationToken,
-                        resolved,
-                        decl.initializer
-                    )
+                if (decl && ts.isIdentifier(decl.name) && decl.name.text === defaultName && decl.type) {
+                    let resolvedType: ts.TypeNode
+
+                    // `ExtractHandlers` may be a bare identifier (inlined, same package) or a
+                    // namespace-qualified reference (e.g. `typed_bridge_dist_tools.ExtractHandlers`)
+                    // when typed-bridge is an external dependency in a consumer project.
+                    const refName =
+                        ts.isTypeReferenceNode(decl.type) &&
+                        (ts.isIdentifier(decl.type.typeName)
+                            ? decl.type.typeName.text
+                            : decl.type.typeName.right.text)
+
+                    if (
+                        ts.isTypeReferenceNode(decl.type) &&
+                        refName === 'ExtractHandlers' &&
+                        decl.type.typeArguments?.length === 1 &&
+                        ts.isTypeLiteralNode(decl.type.typeArguments[0])
+                    ) {
+                        resolvedType = resolveHandlers(decl.type.typeArguments[0])
+                    } else {
+                        resolvedType = decl.type
+                    }
+
                     updatedStatements.push(
-                        ts.factory.updateVariableStatement(
-                            stmt,
-                            stmt.modifiers,
-                            ts.factory.updateVariableDeclarationList(stmt.declarationList, [newDecl])
-                        )
+                        ts.factory.createTypeAliasDeclaration(undefined, 'TypedBridge', undefined, resolvedType)
                     )
                     continue
                 }
@@ -344,31 +356,122 @@ const unwrapBridgeEntryTransformer: ts.TransformerFactory<ts.SourceFile> = _cont
 
 /**
  * Transformer #4:
- * Remove "export { _default as default }" if it exists.
+ * Remove the rollup default export (`export { X as default }` for any X, or
+ * `export default X`). The proxy snippet provides its own default export.
  */
-const removeDefaultExportTransformer: ts.TransformerFactory<ts.SourceFile> = context => {
+const removeDefaultExportTransformer: ts.TransformerFactory<ts.SourceFile> = _context => {
     return sourceFile => {
-        function visitor(node: ts.Node): ts.Node | undefined {
-            // Look for `export { _default as default }` and drop it
-            if (ts.isExportDeclaration(node) && node.exportClause && ts.isNamedExports(node.exportClause)) {
-                const [el] = node.exportClause.elements
-                if (
-                    node.exportClause.elements.length === 1 &&
-                    el.propertyName?.text === '_default' &&
-                    el.name.text === 'default'
-                ) {
-                    return undefined
-                }
-            }
-            return ts.visitEachChild(node, visitor, context)
-        }
-
         const updatedStatements: ts.Statement[] = []
         for (const stmt of sourceFile.statements) {
-            const newStmt = ts.visitNode(stmt, visitor)
-            if (newStmt) updatedStatements.push(newStmt as ts.Statement)
+            // Drop `export default X` / `export = X`
+            if (ts.isExportAssignment(stmt)) continue
+
+            // Filter `... as default` specifiers out of named exports
+            if (ts.isExportDeclaration(stmt) && stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
+                const filtered = stmt.exportClause.elements.filter(el => el.name.text !== 'default')
+                if (filtered.length === 0) continue
+                if (filtered.length !== stmt.exportClause.elements.length) {
+                    updatedStatements.push(
+                        ts.factory.updateExportDeclaration(
+                            stmt,
+                            stmt.modifiers,
+                            stmt.isTypeOnly,
+                            ts.factory.updateNamedExports(stmt.exportClause, filtered),
+                            stmt.moduleSpecifier,
+                            stmt.attributes
+                        )
+                    )
+                    continue
+                }
+            }
+
+            updatedStatements.push(stmt)
         }
         return ts.factory.updateSourceFile(sourceFile, ts.factory.createNodeArray(updatedStatements))
+    }
+}
+
+/**
+ * Transformer #5:
+ * Drop every top-level statement that is not reachable from the `TypedBridge`
+ * alias. When typed-bridge is an external dependency, rollup leaves behind stray
+ * imports (e.g. `import * as ... from 'typed-bridge/dist/tools'`) and inlined
+ * context types (e.g. `adminContext`) that the resolved client no longer needs.
+ */
+const pruneUnreachableTransformer: ts.TransformerFactory<ts.SourceFile> = _context => {
+    return sourceFile => {
+        const statements = sourceFile.statements
+
+        const typedBridge = statements.find(
+            (s): s is ts.TypeAliasDeclaration => ts.isTypeAliasDeclaration(s) && s.name.text === 'TypedBridge'
+        )
+        if (!typedBridge) return sourceFile
+
+        const namesOf = (stmt: ts.Statement): string[] => {
+            if (
+                ts.isTypeAliasDeclaration(stmt) ||
+                ts.isInterfaceDeclaration(stmt) ||
+                ts.isClassDeclaration(stmt) ||
+                ts.isEnumDeclaration(stmt) ||
+                ts.isFunctionDeclaration(stmt)
+            ) {
+                return stmt.name ? [stmt.name.text] : []
+            }
+            if (ts.isVariableStatement(stmt)) {
+                return stmt.declarationList.declarations.flatMap(d => (ts.isIdentifier(d.name) ? [d.name.text] : []))
+            }
+            if (ts.isImportDeclaration(stmt) && stmt.importClause) {
+                const names: string[] = []
+                const clause = stmt.importClause
+                if (clause.name) names.push(clause.name.text)
+                if (clause.namedBindings) {
+                    if (ts.isNamespaceImport(clause.namedBindings)) names.push(clause.namedBindings.name.text)
+                    else for (const el of clause.namedBindings.elements) names.push(el.name.text)
+                }
+                return names
+            }
+            return []
+        }
+
+        const declarers = new Map<string, ts.Statement>()
+        for (const stmt of statements) for (const n of namesOf(stmt)) if (!declarers.has(n)) declarers.set(n, stmt)
+
+        const refsOf = (node: ts.Node): Set<string> => {
+            const acc = new Set<string>()
+            const visit = (n: ts.Node) => {
+                if (ts.isTypeReferenceNode(n)) {
+                    let tn: ts.EntityName = n.typeName
+                    while (ts.isQualifiedName(tn)) tn = tn.left
+                    acc.add(tn.text)
+                }
+                if (ts.isTypeQueryNode(n)) {
+                    let en: ts.EntityName = n.exprName
+                    while (ts.isQualifiedName(en)) en = en.left
+                    acc.add(en.text)
+                }
+                ts.forEachChild(n, visit)
+            }
+            visit(node)
+            return acc
+        }
+
+        const keep = new Set<ts.Statement>([typedBridge])
+        const queue: ts.Statement[] = [typedBridge]
+        while (queue.length) {
+            const cur = queue.shift()!
+            for (const name of refsOf(cur)) {
+                const d = declarers.get(name)
+                if (d && !keep.has(d)) {
+                    keep.add(d)
+                    queue.push(d)
+                }
+            }
+        }
+
+        return ts.factory.updateSourceFile(
+            sourceFile,
+            ts.factory.createNodeArray(statements.filter(s => keep.has(s)))
+        )
     }
 }
 
@@ -395,13 +498,14 @@ export default function cleanTsFile(src: string) {
         unwrapBridgeEntryTransformer,
         resolveZodTypesTransformer,
         removeSecondParamTransformer,
-        removeDefaultExportTransformer
+        removeDefaultExportTransformer,
+        pruneUnreachableTransformer
     ])
 
     // Print final code
-    const eslintDisable = `/* eslint-disable */`
+    const header = `/* This file is auto-generated by typed-bridge. Do not edit. */`
     const printer = ts.createPrinter()
-    const transformedCode = eslintDisable + '\n' + printer.printFile(result.transformed[0]).concat(proxySnippet())
+    const transformedCode = header + '\n' + printer.printFile(result.transformed[0]).concat(proxySnippet())
 
     // Write back to the same file
     fs.writeFileSync(src, transformedCode, 'utf-8')

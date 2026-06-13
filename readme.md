@@ -91,7 +91,7 @@ import * as user from './user'
 import * as userTypes from './user/types'
 
 export const entries = {
-    'user.fetch': { handler: user.fetch, context: 'user', ...userTypes.fetch }
+    'user.fetch': { handler: user.fetch, ...userTypes.fetch }
 }
 
 export default defineBridge(entries)
@@ -209,12 +209,17 @@ Formats: `openai`, `anthropic`, `json-schema`.
 
 ### Have a giant API? Use meta-tools.
 
-For hundreds of endpoints, do not flood the context window. Give the model two tools instead of two hundred:
+For hundreds of endpoints, do not flood the context window. Give the model three tools instead of two hundred:
 
 ```ts
 import { getMetaTools, handleMetaToolCall } from 'typed-bridge'
 
 const tools = getMetaTools({ format: 'openai' })
+
+// The model discovers tools, inspects their schema, then calls them:
+// 1. tool_search({ query: "user" })       → [{ name: "user.fetch", description: "..." }, ...]
+// 2. tool_describe({ name: "user.fetch" }) → { name, description, args, response }
+// 3. tool_use({ name: "user.fetch", arguments: { id: 1 } }) → { id: 1, name: "Alice" }
 
 const result = await handleMetaToolCall(bridge, entries, {
     name: 'tool_use',
@@ -222,19 +227,7 @@ const result = await handleMetaToolCall(bridge, entries, {
 })
 ```
 
-The model calls `tool_search` to discover what exists, then `tool_use` to run it. Your token bill stays flat as your API grows.
-
-### Group tools by context
-
-Tag entries so the model can search a slice of your API at a time:
-
-```ts
-export const entries = {
-    'user.fetch': { handler: user.fetch, context: 'user', ...userTypes.fetch },
-    'order.list': { handler: order.list, context: 'order', ...orderTypes.list },
-    'utils.health': { handler: utils.health, ...utilTypes.health } // no context, shows up in every search
-}
-```
+The model calls `tool_search` to discover what exists (names and descriptions only), `tool_describe` to get the full schema for the tool it needs, then `tool_use` to run it. Your token bill stays flat as your API grows.
 
 ### Or just hit the REST endpoint
 
@@ -304,9 +297,21 @@ tbConfig.logs.request = true
 tbConfig.logs.response = true
 tbConfig.logs.error = true
 tbConfig.responseDelay = 0 // Artificial delay in ms for testing loading states
+tbConfig.maxToolOutputChars = 0 // Cap MCP/LLM tool results (chars of JSON); 0 = unlimited
 ```
 
 `createBridge` also returns the underlying Express `app` and `server`, so you can add routes, serve static files, or attach any Express middleware.
+
+### Guarding tool output size
+
+The same function can serve a data-heavy response over HTTP and as an AI tool. A frontend handles a large payload fine, but feeding it to a model wastes tokens or overflows the context window. Set `tbConfig.maxToolOutputChars` to cap the serialized result on the **MCP and LLM tool surfaces only** (HTTP is never limited). Oversized results are **rejected, not truncated** — the caller gets an error telling it to narrow the query, so the model never receives invalid JSON:
+
+```ts
+tbConfig.maxToolOutputChars = 100_000
+
+// A tool returning more than that responds with:
+// "Result too large (182431 chars, limit 100000). Narrow the query with filters or pagination."
+```
 
 ---
 
