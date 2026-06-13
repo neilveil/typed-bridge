@@ -1,43 +1,4 @@
 /* eslint-disable */
-interface User {
-    id: number;
-    name: string;
-    email: string;
-    createdAt: Date;
-}
-interface Product {
-    id: number;
-    name: string;
-    price: number;
-    createdAt: Date;
-}
-interface OrderItem {
-    productId: number;
-    quantity: number;
-    price: number;
-    notes?: string;
-    discount: number | null;
-}
-interface Address {
-    street: string;
-    city: string;
-    state: string;
-    zip: string;
-    country: string;
-}
-interface Order {
-    id: number;
-    customerId: number;
-    status: string;
-    total: number;
-    items: OrderItem[];
-    shippingAddress: Address;
-    billingAddress: Address | null;
-    isGift: boolean;
-    giftMessage: string | null;
-    createdAt: Date;
-    updatedAt: Date | null;
-}
 declare const _default: {
     'user.fetch': (args: {
         id: number;
@@ -45,6 +6,7 @@ declare const _default: {
         id: number;
         name: string;
         email: string;
+        createdAt: Date;
     }>;
     'user.create': (args: {
         name: string;
@@ -59,13 +21,23 @@ declare const _default: {
         id: number;
         name?: string;
         email?: string;
-    }) => Promise<User>;
+    }) => Promise<{
+        id: number;
+        name: string;
+        email: string;
+        createdAt: Date;
+    }>;
     'user.remove': (args: {
         id: number;
     }) => Promise<{
         success: boolean;
     }>;
-    'user.fetchAll': () => Promise<User[]>;
+    'user.fetchAll': () => Promise<{
+        id: number;
+        name: string;
+        email: string;
+        createdAt: Date;
+    }[]>;
     'product.fetch': (args: {
         id: number;
     }) => Promise<{
@@ -83,7 +55,12 @@ declare const _default: {
         price: number;
         createdAt: Date;
     }>;
-    'product.list': () => Promise<Product[]>;
+    'product.list': () => Promise<{
+        id: number;
+        name: string;
+        price: number;
+        createdAt: Date;
+    }[]>;
     'order.create': (args: {
         customerId: number;
         items: {
@@ -113,7 +90,7 @@ declare const _default: {
         giftMessage: string | null;
     }) => Promise<{
         id: number;
-        status: string;
+        status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
         total: number;
         items: {
             productId: number;
@@ -129,7 +106,7 @@ declare const _default: {
     }) => Promise<{
         id: number;
         customerId: number;
-        status: string;
+        status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
         total: number;
         items: {
             productId: number;
@@ -159,7 +136,7 @@ declare const _default: {
     }>;
     'order.update': (args: {
         id: number;
-        status?: string;
+        status?: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
         shippingAddress?: {
             street: string;
             city: string;
@@ -170,10 +147,40 @@ declare const _default: {
         giftMessage?: string | null;
     }) => Promise<{
         id: number;
-        status: string;
+        status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
         updatedAt: Date;
     }>;
-    'order.list': () => Promise<Order[]>;
+    'order.list': () => Promise<{
+        id: number;
+        customerId: number;
+        status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
+        total: number;
+        items: {
+            productId: number;
+            quantity: number;
+            price: number;
+            notes?: string;
+            discount: number | null;
+        }[];
+        shippingAddress: {
+            street: string;
+            city: string;
+            state: string;
+            zip: string;
+            country: string;
+        };
+        billingAddress: {
+            street: string;
+            city: string;
+            state: string;
+            zip: string;
+            country: string;
+        } | null;
+        isGift: boolean;
+        giftMessage: string | null;
+        createdAt: Date;
+        updatedAt: Date | null;
+    }[]>;
     'order.resolve': (args: {
         id: number;
     }) => Promise<{

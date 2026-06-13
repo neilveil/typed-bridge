@@ -6,8 +6,15 @@ import { Server } from 'http'
 import _path from 'path'
 import { tbConfig } from '..'
 import { getPatternSpecificity, matchesPattern, printStartLogs, printStopLogs } from '../helpers'
+import { MCPGetContext, mountMCP } from '../mcp'
+import { Bridge, BridgeEntries, isLLMToolFormat, LLMToolFormat, LLM_TOOL_FORMATS, toLLMTools } from '../tools'
 
-type Bridge = { [key: string]: (...args: any[]) => Promise<any> }
+interface CreateBridgeOptions {
+    entries?: BridgeEntries
+    toolsFormat?: LLMToolFormat
+    mcp?: boolean | string
+    mcpGetContext?: MCPGetContext
+}
 
 type Middleware = {
     pattern: string
@@ -26,7 +33,8 @@ export const onShutdown = (fn: () => void) => (shutdownCallback = fn)
 export const createBridge = (
     bridge: Bridge,
     port: number,
-    path: string = '/bridge'
+    path: string = '/bridge',
+    options?: CreateBridgeOptions
 ): { app: Application; server: Server } => {
     const app = express()
 
@@ -110,6 +118,38 @@ export const createBridge = (
             timestamp: new Date().toISOString()
         })
     })
+
+    // LLM tools endpoint
+    if (options?.entries) {
+        const entries = options.entries
+        const defaultFormat: LLMToolFormat = options.toolsFormat || 'openai'
+
+        app.get(_path.join(path, 'tools'), (req: Request, res: Response) => {
+            const requestedFormat = req.query.format
+
+            // No format provided → use the configured default
+            if (requestedFormat === undefined) {
+                res.json(toLLMTools(entries, { format: defaultFormat }))
+                return
+            }
+
+            // Reject unknown formats instead of silently returning an empty tool list
+            if (typeof requestedFormat !== 'string' || !isLLMToolFormat(requestedFormat)) {
+                res.status(400).json({
+                    error: `Invalid format: ${String(requestedFormat)}. Expected one of ${LLM_TOOL_FORMATS.join(', ')}`
+                })
+                return
+            }
+
+            res.json(toLLMTools(entries, { format: requestedFormat }))
+        })
+    }
+
+    // MCP endpoint
+    if (options?.mcp && options?.entries) {
+        const mcpPath = typeof options.mcp === 'string' ? options.mcp : _path.join(path, 'mcp')
+        mountMCP(app, bridge, options.entries, mcpPath, options.mcpGetContext)
+    }
 
     app.use(path, bridgeHandler(bridge))
 

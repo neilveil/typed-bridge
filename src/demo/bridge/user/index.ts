@@ -1,12 +1,7 @@
 import { z } from '../../..'
 import * as types from './types'
 
-export interface User {
-    id: number
-    name: string
-    email: string
-    createdAt: Date
-}
+type User = z.infer<typeof types.fetchAll.res>[number]
 
 let nextId = 4
 
@@ -20,10 +15,8 @@ type Context = { requestedAt: number; userId: number }
 
 export const fetch = async (
     args: z.infer<typeof types.fetch.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.fetch.res>> => {
-    args = types.fetch.args.parse(args)
-
     const user = users.find(u => u.id === args.id)
     if (!user) throw new Error(`User with ID ${args.id} not found`)
 
@@ -32,10 +25,8 @@ export const fetch = async (
 
 export const create = async (
     args: z.infer<typeof types.create.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.create.res>> => {
-    args = types.create.args.parse(args)
-
     const user: User = {
         id: nextId++,
         name: args.name,
@@ -47,7 +38,10 @@ export const create = async (
     return user
 }
 
-export const update = async (args: { id: number; name?: string; email?: string }, context: Context): Promise<User> => {
+export const update = async (
+    args: z.infer<typeof types.update.args>,
+    _context: Context
+): Promise<z.infer<typeof types.update.res>> => {
     const user = users.find(u => u.id === args.id)
     if (!user) throw new Error(`User with ID ${args.id} not found`)
 
@@ -58,9 +52,9 @@ export const update = async (args: { id: number; name?: string; email?: string }
 }
 
 export const remove = async (
-    args: { id: number },
-    context: Context & { isAdmin: boolean }
-): Promise<{ success: boolean }> => {
+    args: z.infer<typeof types.remove.args>,
+    _context: Context & { isAdmin: boolean }
+): Promise<z.infer<typeof types.remove.res>> => {
     const index = users.findIndex(u => u.id === args.id)
     if (index === -1) throw new Error(`User with ID ${args.id} not found`)
 
@@ -68,6 +62,6 @@ export const remove = async (
     return { success: true }
 }
 
-export const fetchAll = async (): Promise<User[]> => {
+export const fetchAll = async (): Promise<z.infer<typeof types.fetchAll.res>> => {
     return users
 }

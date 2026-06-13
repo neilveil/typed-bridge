@@ -1,12 +1,7 @@
 import { z } from '../../..'
 import * as types from './types'
 
-export interface Product {
-    id: number
-    name: string
-    price: number
-    createdAt: Date
-}
+type Product = z.infer<typeof types.list.res>[number]
 
 let nextId = 4
 
@@ -20,10 +15,8 @@ type Context = { requestedAt: number; userId: number }
 
 export const fetch = async (
     args: z.infer<typeof types.fetch.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.fetch.res>> => {
-    args = types.fetch.args.parse(args)
-
     const product = products.find(p => p.id === args.id)
     if (!product) throw new Error(`Product with ID ${args.id} not found`)
 
@@ -32,10 +25,8 @@ export const fetch = async (
 
 export const create = async (
     args: z.infer<typeof types.create.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.create.res>> => {
-    args = types.create.args.parse(args)
-
     const product: Product = {
         id: nextId++,
         name: args.name,
@@ -47,6 +38,6 @@ export const create = async (
     return product
 }
 
-export const list = async (): Promise<Product[]> => {
+export const list = async (): Promise<z.infer<typeof types.list.res>> => {
     return products
 }

@@ -1,16 +1,52 @@
-# Typed Bridge - Strictly Typed Server Functions for TypeScript
+<div align="center">
+
+<img src="assets/default.png" alt="Typed Bridge" width="380" />
+
+# Typed Bridge
+
+### Write one function. Get a typed API, an MCP server, and LLM tools.
 
 [![Downloads](https://img.shields.io/npm/dm/typed-bridge.svg)](https://www.npmjs.com/package/typed-bridge)
 [![Version](https://img.shields.io/npm/v/typed-bridge.svg)](https://www.npmjs.com/package/typed-bridge)
 [![License](https://img.shields.io/npm/l/typed-bridge.svg)](https://github.com/neilveil/typed-bridge/blob/main/license.txt)
 
-**End-to-End Type Safety · Framework Agnostic · Zero Config**
+**Type-safe RPC for humans. Native tools for AI. Zero glue code.**
 
-Typed Bridge lets you define **strictly typed server functions** and auto-generates a typed client for your frontend. Call server functions like local functions, with full type safety from backend to frontend. No routers, no resolvers, no schema stitching. Just plain TypeScript functions.
+</div>
 
 ---
 
-## Quick Start
+## Your backend just became AI-native
+
+You already write plain TypeScript functions on your server. Typed Bridge takes those exact functions and hands you three things at once:
+
+1. A **fully typed client** your frontend calls like local functions.
+2. An **MCP server** so Cursor, Claude Desktop, and Windsurf can call your backend directly.
+3. **LLM tool definitions** so OpenAI and Anthropic can use your backend as tools.
+
+Same function. Same validation. No second codebase for AI. No hand written tool schemas. No drift.
+
+> Every function you ship is instantly something an agent can call. That is the whole pitch.
+
+---
+
+## One function, three superpowers
+
+```mermaid
+flowchart LR
+    A[Your TypeScript functions] --> B[defineBridge]
+    B --> C[Typed client for your frontend]
+    B --> D[MCP server for AI tools]
+    B --> E[LLM tool definitions]
+    D --> F[Cursor, Claude, Windsurf]
+    E --> G[OpenAI, Anthropic, your agents]
+```
+
+You describe a function once with a Zod schema. Typed Bridge derives the client types, the MCP tool schema, and the LLM tool schema from that single source. They can never fall out of sync, because there is only one truth.
+
+---
+
+## Quick start
 
 ### 1. Install
 
@@ -18,346 +54,257 @@ Typed Bridge lets you define **strictly typed server functions** and auto-genera
 npm i typed-bridge
 ```
 
-### 2. Setup Server
-
-Create `server.ts`:
-
-```typescript
-import { createBridge } from 'typed-bridge'
-import bridge from './bridge'
-
-createBridge(bridge, 8080, '/bridge')
-```
-
-### 3. Create Bridge File
-
-Define routes in `bridge/index.ts`:
-
-```typescript
-import * as user from './user'
-
-export default {
-    'user.fetch': user.fetch,
-    'user.update': user.update,
-    'user.fetchAll': user.fetchAll
-}
-```
-
-### 4. Declare Functions
-
-These are just normal async functions. The first argument is what the client sends, the return type is what the client receives. That's it.
+### 2. Write a normal function
 
 `bridge/user/index.ts`:
-
-```typescript
-interface User {
-    id: number
-    name: string
-    email: string
-}
-
-// Fetch a single user by id
-export const fetch = async (args: { id: number }): Promise<User> => {
-    return db.users.findById(args.id)
-}
-
-// Update user fields
-export const update = async (args: { id: number; name?: string; email?: string }): Promise<User> => {
-    return db.users.update(args.id, args)
-}
-
-// List all users
-export const fetchAll = async (): Promise<User[]> => {
-    return db.users.findAll()
-}
-```
-
-### 5. Generate Typed Client
-
-Add the generation script to `package.json`:
-
-```json
-{
-    "scripts": {
-        "gen:typed-bridge-client": "typed-bridge gen-typed-bridge-client --src ./src/bridge/index.ts --dest ./bridge.ts"
-    }
-}
-```
-
-Run it:
-
-```bash
-npm run gen:typed-bridge-client
-```
-
-### 6. Use in Frontend
-
-Import the generated `bridge.ts` file in your frontend:
-
-```typescript
-import bridge, { typedBridgeConfig } from './bridge'
-
-typedBridgeConfig.host = 'http://localhost:8080/bridge'
-typedBridgeConfig.headers = {
-    'Content-Type': 'application/json',
-    Authorization: 'Bearer 123'
-}
-typedBridgeConfig.onResponse = res => {
-    // Custom response handling
-}
-
-const user = await bridge['user.fetch']({ id: 1 })
-```
-
----
-
-## Keeping the Client in Sync
-
-The generated `bridge.ts` file lives in your backend and needs to reach your frontend. Here are common approaches:
-
-**Monorepo**: Import the file directly across packages. Simplest if your repos are co-located.
-
-**Copy script**: Add a build step that copies the file: `cp ../backend/bridge.ts ./src/bridge.ts`
-
-**Serve and fetch**: Host the generated file via Express static and use [clone-kit](https://www.npmjs.com/package/clone-kit) to pull it in your frontend build. [Full guide](./docs/auto-bridge-sync.md)
-
----
-
-## Middleware
-
-Typed Bridge provides middleware that runs before bridge handlers.
-
-```ts
-createMiddleware('user.fetch', async (req, res) => {
-    console.log('Middleware for user.fetch')
-})
-```
-
-Use glob patterns to match multiple routes:
-
-```ts
-createMiddleware('user.*', async (req, res) => {
-    console.log('Middleware for all user routes')
-})
-```
-
-Middlewares execute in order of specificity, broader patterns run first:
-
-```
-*            → runs first (matches everything)
-user.*       → runs second
-user.fetch   → runs last (most specific)
-```
-
-### Context
-
-Middlewares can return a `context` object that gets merged and passed to the handler:
-
-```ts
-createMiddleware('user.*', async (req, res) => {
-    return {
-        context: {
-            a: 1
-        }
-    }
-})
-
-createMiddleware('user.fetch', async (req, res) => {
-    return {
-        context: {
-            b: 2
-        }
-    }
-})
-```
-
-The handler receives the merged context:
-
-```ts
-type Context = {
-    a: number
-    b: number
-}
-
-export const fetch = async (
-    args: { id: number },
-    context: Context
-): Promise<{ id: number; name: string } | undefined> => {
-    console.log(context) // { a: 1, b: 2 }
-    return users.find(user => user.id === args.id)
-}
-```
-
-### Request Validation
-
-Throw errors or send custom responses to block requests:
-
-```ts
-createMiddleware('user.*', async (req, res) => {
-    if (req.headers.authorization !== 'Bearer 123') {
-        throw new Error('Unauthorized')
-    }
-})
-```
-
-For custom status codes:
-
-```ts
-createMiddleware('user.*', async (req, res) => {
-    if (req.headers.authorization !== 'Bearer 123') {
-        res.status(401).send('Unauthorized')
-
-        // Required to stop processing, otherwise the next middleware or handler will run
-        return { next: false }
-    }
-})
-```
-
----
-
-## Zod Validation
-
-Typed Bridge ships with Zod and re-exports it as `z`. Define schemas and use them in handlers:
-
-### 1. Declare Schemas
-
-`types.ts`:
-
-```ts
-import { z } from 'typed-bridge'
-
-export const fetch = {
-    args: z.object({
-        id: z.number().min(1)
-    }),
-    res: z.object({
-        id: z.number(),
-        name: z.string()
-    })
-}
-```
-
-### 2. Use in Handler
 
 ```ts
 import { z } from 'typed-bridge'
 import * as types from './types'
 
-export const fetch = async (
-    args: z.infer<typeof types.fetch.args>,
-    context: { id: number }
-): Promise<z.infer<typeof types.fetch.res>> => {
-    args = types.fetch.args.parse(args)
-
-    const user = users.find(user => user.id === args.id)
-    if (!user) {
-        throw new Error(`User with ID ${args.id} not found`)
-    }
-
-    return user
+export const fetch = async (args: z.infer<typeof types.fetch.args>) => {
+    return db.users.findById(args.id)
 }
 ```
 
-The generated client automatically resolves Zod types to plain TypeScript. Your frontend never depends on Zod.
+### 3. Describe it once
+
+`bridge/user/types.ts`:
+
+```ts
+import { z } from 'typed-bridge'
+
+export const fetch = {
+    description: 'Fetch a user by ID',
+    args: z.object({ id: z.number().min(1).describe('Unique user identifier') }),
+    res: z.object({ id: z.number(), name: z.string(), email: z.string() })
+}
+```
+
+### 4. Wire it up with `defineBridge`
+
+`bridge/index.ts`:
+
+```ts
+import { defineBridge } from 'typed-bridge'
+import * as user from './user'
+import * as userTypes from './user/types'
+
+export const entries = {
+    'user.fetch': { handler: user.fetch, context: 'user', ...userTypes.fetch }
+}
+
+export default defineBridge(entries)
+```
+
+`defineBridge` auto-validates incoming args against your Zod schema. No manual `.parse()` in handlers, ever.
+
+### 5. Boot the server, AI included
+
+```ts
+import { createBridge } from 'typed-bridge'
+import bridge, { entries } from './bridge'
+
+createBridge(bridge, 8080, '/bridge', { entries, mcp: true })
+```
+
+That is it. You now have a typed HTTP API, an MCP endpoint at `/bridge/mcp`, and an LLM tools endpoint at `/bridge/tools`. From one function.
+
+---
+
+## Superpower 1: The typed client
+
+Generate a standalone client file for your frontend:
+
+```bash
+typed-bridge gen-typed-bridge-client --src ./src/bridge/index.ts --dest ./bridge.ts
+```
+
+Call your backend like it lives in the same file:
+
+```ts
+import bridge, { typedBridgeConfig } from './bridge'
+
+typedBridgeConfig.host = 'http://localhost:8080/bridge'
+
+const user = await bridge['user.fetch']({ id: 1 })
+```
+
+Full autocomplete, full type safety, from server to screen. Your frontend never imports Zod and never sees your backend code. It is one generated file you can drop into React, Vue, Angular, React Native, or anything else.
+
+---
+
+## Superpower 2: The MCP server (the headline act)
+
+Flip one flag and your backend becomes a [Model Context Protocol](https://modelcontextprotocol.io) server. AI tools connect to it and call your real functions, with your real validation.
+
+```ts
+createBridge(bridge, 8080, '/bridge', { entries, mcp: true })
+```
+
+Point any MCP client at it:
+
+```json
+{
+    "mcpServers": {
+        "my-backend": {
+            "url": "http://localhost:8080/bridge/mcp",
+            "headers": { "Authorization": "Bearer ${MCP_API_KEY}" },
+            "env": { "MCP_API_KEY": "your-api-key" }
+        }
+    }
+}
+```
+
+### Auth that actually works
+
+MCP requests skip your normal middleware, so you derive context straight from headers:
+
+```ts
+createBridge(bridge, 8080, '/bridge', {
+    entries,
+    mcp: true,
+    mcpGetContext: async headers => {
+        const user = await verifyToken(headers['authorization'])
+        return { userId: user.id, role: user.role }
+    }
+})
+```
+
+The returned context lands in every handler as the second argument, exactly like middleware context. Same security model for humans and agents.
+
+---
+
+## Superpower 3: LLM tool calling
+
+Skip MCP and talk to models directly. Typed Bridge speaks OpenAI, Anthropic, and raw JSON Schema.
+
+### Hand every tool to the model
+
+```ts
+import { toLLMTools } from 'typed-bridge'
+
+const tools = toLLMTools(entries, { format: 'openai' })
+// Pass `tools` straight into openai.chat.completions.create()
+```
+
+Formats: `openai`, `anthropic`, `json-schema`.
+
+### Have a giant API? Use meta-tools.
+
+For hundreds of endpoints, do not flood the context window. Give the model two tools instead of two hundred:
+
+```ts
+import { getMetaTools, handleMetaToolCall } from 'typed-bridge'
+
+const tools = getMetaTools({ format: 'openai' })
+
+const result = await handleMetaToolCall(bridge, entries, {
+    name: 'tool_use',
+    arguments: { name: 'user.fetch', arguments: { id: 1 } }
+})
+```
+
+The model calls `tool_search` to discover what exists, then `tool_use` to run it. Your token bill stays flat as your API grows.
+
+### Group tools by context
+
+Tag entries so the model can search a slice of your API at a time:
+
+```ts
+export const entries = {
+    'user.fetch': { handler: user.fetch, context: 'user', ...userTypes.fetch },
+    'order.list': { handler: order.list, context: 'order', ...orderTypes.list },
+    'utils.health': { handler: utils.health, ...utilTypes.health } // no context, shows up in every search
+}
+```
+
+### Or just hit the REST endpoint
+
+```
+GET /bridge/tools?format=openai
+```
+
+---
+
+## Why Typed Bridge
+
+### vs writing AI tools by hand
+
+|                          | **Typed Bridge**                          | **DIY tool calling**                         |
+| ------------------------ | ----------------------------------------- | -------------------------------------------- |
+| Tool schemas             | Derived from your Zod types               | Hand written and kept in sync manually       |
+| MCP server               | One flag                                  | A separate service to build and maintain     |
+| Validation               | Shared with your API                      | Re-implemented for the AI path               |
+| Drift between code and AI | Impossible, single source                | Constant, two sources                        |
+
+### vs tRPC
+
+|                        | **Typed Bridge**                              | **tRPC**                            |
+| ---------------------- | --------------------------------------------- | ----------------------------------- |
+| Setup                  | Plain functions, generate a client, done      | Routers, procedures, adapters       |
+| Monorepo required      | No, the client is a standalone file           | Practically yes for type inference  |
+| Frontend framework     | Any                                           | React first, adapters for others    |
+| AI tooling             | Built in (MCP and LLM)                         | Not included                        |
+
+### vs GraphQL
+
+|                    | **Typed Bridge**                          | **GraphQL**                                  |
+| ------------------ | ----------------------------------------- | -------------------------------------------- |
+| Setup              | Define functions, generate client         | Schema, resolvers, codegen                   |
+| Type safety        | Automatic from signatures                 | Requires a codegen toolchain                 |
+| Learning curve     | Minimal, plain TypeScript                 | SDL, resolvers, fragments, queries           |
+| AI tooling         | Built in                                  | Roll your own                                |
+
+---
+
+## Middleware when you need it
+
+Pattern based middleware runs before handlers and can inject context:
+
+```ts
+import { createMiddleware } from 'typed-bridge'
+
+createMiddleware('user.*', async (req, res) => {
+    if (!req.headers.authorization) {
+        res.status(401).send('Unauthorized')
+        return { next: false }
+    }
+    return { context: { userId: 1 } }
+})
+```
+
+Broader patterns run first (`*`, then `user.*`, then `user.fetch`). Returned context is merged and passed to the handler.
 
 ---
 
 ## Configuration
 
-```typescript
+```ts
 import { tbConfig } from 'typed-bridge'
 
 tbConfig.logs.request = true
 tbConfig.logs.response = true
 tbConfig.logs.error = true
-
-tbConfig.logs.argsOnError = true
-tbConfig.logs.contextOnError = true
-
-tbConfig.responseDelay = 0 // Artificial delay in ms (useful for testing loading states)
+tbConfig.responseDelay = 0 // Artificial delay in ms for testing loading states
 ```
+
+`createBridge` also returns the underlying Express `app` and `server`, so you can add routes, serve static files, or attach any Express middleware.
 
 ---
 
-## Extending the Server
+## Adding a new route
 
-`createBridge` returns the underlying Express `app` and `server` instances, so you can add custom routes, serve static files, or attach any Express middleware:
-
-```typescript
-import { createBridge, onShutdown } from 'typed-bridge'
-import path from 'path'
-import bridge from './bridge'
-
-const { app, server } = createBridge(bridge, 8080, '/bridge')
-
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')))
-
-// Custom GET endpoint
-app.get('/status', (req, res) => {
-    res.json({ status: 'ok', uptime: process.uptime() })
-})
-
-// Cleanup on graceful shutdown (SIGINT/SIGTERM)
-onShutdown(() => {
-    console.log('Server shutting down')
-})
-```
-
----
-
-## Typed Bridge vs Alternatives
-
-### vs tRPC
-
-|                        | **Typed Bridge**                              | **tRPC**                                           |
-| ---------------------- | --------------------------------------------- | -------------------------------------------------- |
-| **Setup**              | Define functions, generate typed client, done | Routers, procedures, adapters                      |
-| **Monorepo required?** | No, generated client is a standalone file     | Practically yes, for type inference                |
-| **Frontend framework** | Any (React, Vue, Angular, RN, etc.)           | React-first, adapters for others                   |
-| **Learning curve**     | Minimal, plain async functions                | Moderate, procedures, context, middleware patterns |
-| **Runtime validation** | Zod (built-in)                                | Zod or others via `.input()`                       |
-
-### vs GraphQL
-
-|                    | **Typed Bridge**                                       | **GraphQL**                                                |
-| ------------------ | ------------------------------------------------------ | ---------------------------------------------------------- |
-| **Setup**          | Define functions, generate typed client, done          | Schema definition, resolvers, codegen                      |
-| **Type safety**    | Automatic from function signatures                     | Requires codegen toolchain (e.g. GraphQL Code Generator)   |
-| **Overfetching**   | Not applicable, you control what each function returns | Solved by design with field selection                      |
-| **Learning curve** | Minimal, plain TypeScript                              | Significant: SDL, resolvers, fragments, queries, mutations |
-| **Best for**       | App-specific backends, internal APIs                   | Public APIs, multi-client data graphs                      |
-
-Typed Bridge is for teams that want **type-safe RPCs without the architecture overhead**. You write normal TypeScript functions on the server, and the client just works.
-
----
-
-## Recommended File Organization
-
-```
-src/
-  server.ts           Server entry
-  middleware.ts        Middleware registrations (side-effect import)
-  bridge/
-    index.ts          Route map (flat object)
-    user/
-      index.ts        Handler functions
-      types.ts        Zod schemas (optional)
-    product/
-      index.ts        Handler functions
-      types.ts        Zod schemas (optional)
-```
-
-### Adding a new route
-
-1. Create handler in `bridge/<module>/index.ts`
-2. If using Zod, add schemas in `<module>/types.ts` using `z` from `typed-bridge`
-3. Register route in `bridge/index.ts` as `'module.action': module.action`
-4. If middleware needed, add `createMiddleware(...)` and import the file in server entry
-5. Run `gen:typed-bridge-client` to regenerate the typed client
+1. Create the handler in `bridge/<module>/index.ts`.
+2. Add its Zod schema in `<module>/types.ts`.
+3. Register it in `bridge/index.ts`:
+    - Flat map for a plain typed API: `export default { 'module.action': module.action }`
+    - Entry based for AI features: `export const entries = { 'module.action': { handler: module.action, ...moduleTypes.action } }` then `export default defineBridge(entries)`
+4. Add middleware if needed and import it in your server entry.
+5. Regenerate the client.
 
 ---
 
 ## Developer
 
-Developed & maintained by [neilveil](https://github.com/neilveil). Give a star to support this project!
+Built and maintained by [neilveil](https://github.com/neilveil). If Typed Bridge saves you a codebase, drop a star.

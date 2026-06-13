@@ -1,0 +1,7 @@
+{
+    "mcpServers": {
+        "typed-bridge-demo": {
+            "url": "http://localhost:8080/bridge/mcp"
+        }
+    }
+}

@@ -1,24 +1,30 @@
+import { defineBridge } from '../..'
 import * as user from './user'
+import * as userTypes from './user/types'
 import * as product from './product'
+import * as productTypes from './product/types'
 import * as order from './order'
+import * as orderTypes from './order/types'
 
-export default {
-    'user.fetch': user.fetch,
-    'user.create': user.create,
-    'user.update': user.update,
-    'user.remove': user.remove,
-    'user.fetchAll': user.fetchAll,
+export const entries = {
+    'user.fetch': { handler: user.fetch, context: 'user', ...userTypes.fetch },
+    'user.create': { handler: user.create, context: 'user', ...userTypes.create },
+    'user.update': { handler: user.update, context: 'user', ...userTypes.update },
+    'user.remove': { handler: user.remove, context: 'user', ...userTypes.remove },
+    'user.fetchAll': { handler: user.fetchAll, context: 'user', ...userTypes.fetchAll },
 
-    'product.fetch': product.fetch,
-    'product.create': product.create,
-    'product.list': product.list,
+    'product.fetch': { handler: product.fetch, context: 'product', ...productTypes.fetch },
+    'product.create': { handler: product.create, context: 'product', ...productTypes.create },
+    'product.list': { handler: product.list, context: 'product', ...productTypes.list },
 
-    'order.create': order.create,
-    'order.fetch': order.fetch,
-    'order.update': order.update,
-    'order.list': order.list,
-    'order.resolve': order.resolve,
-    'order.statusFilter': order.statusFilter,
-    'order.tag': order.tag,
-    'order.primitives': order.primitives
+    'order.create': { handler: order.create, context: 'order', ...orderTypes.create },
+    'order.fetch': { handler: order.fetch, context: 'order', ...orderTypes.fetch },
+    'order.update': { handler: order.update, context: 'order', ...orderTypes.update },
+    'order.list': { handler: order.list, context: 'order', ...orderTypes.list },
+    'order.resolve': { handler: order.resolve, context: 'order', ...orderTypes.resolve },
+    'order.statusFilter': { handler: order.statusFilter, context: 'order', ...orderTypes.statusFilter },
+    'order.tag': { handler: order.tag, context: 'order', ...orderTypes.tag },
+    'order.primitives': { handler: order.primitives, ...orderTypes.primitives }
 }
+
+export default defineBridge(entries)

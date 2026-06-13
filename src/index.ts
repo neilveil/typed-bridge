@@ -1,4 +1,8 @@
 export { Application, default as express, Express, NextFunction, Request, Response, Router } from 'express'
 export { createBridge, createMiddleware, onShutdown } from './bridge'
 export { config as tbConfig } from './config'
+export { mountMCP } from './mcp'
+export type { MCPGetContext } from './mcp'
+export { defineBridge, getMetaTools, handleMetaToolCall, toLLMTools, toolSearch, toolUse } from './tools'
+export type { Bridge, BridgeEntries, BridgeEntry, LLMToolFormat, ToLLMToolsOptions, ToolCall } from './tools'
 export { z } from 'zod'

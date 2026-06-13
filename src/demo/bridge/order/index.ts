@@ -1,35 +1,7 @@
 import { z } from '../../..'
 import * as types from './types'
 
-export interface OrderItem {
-    productId: number
-    quantity: number
-    price: number
-    notes?: string
-    discount: number | null
-}
-
-export interface Address {
-    street: string
-    city: string
-    state: string
-    zip: string
-    country: string
-}
-
-export interface Order {
-    id: number
-    customerId: number
-    status: string
-    total: number
-    items: OrderItem[]
-    shippingAddress: Address
-    billingAddress: Address | null
-    isGift: boolean
-    giftMessage: string | null
-    createdAt: Date
-    updatedAt: Date | null
-}
+type Order = z.infer<typeof types.list.res>[number]
 
 let nextId = 1
 
@@ -39,21 +11,15 @@ type Context = { requestedAt: number; userId: number }
 
 export const create = async (
     args: z.infer<typeof types.create.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.create.res>> => {
-    args = types.create.args.parse(args)
-
-    const items = args.items.map(item => ({
-        ...item,
-        price: item.price,
-        discount: item.discount
-    }))
+    const items = args.items
 
     const order: Order = {
         id: nextId++,
         customerId: args.customerId,
         status: 'pending',
-        total: items.reduce((sum, i) => sum + i.price * i.quantity, 0),
+        total: items.reduce((sum, item) => sum + item.price * item.quantity, 0),
         items,
         shippingAddress: { ...args.shippingAddress, country: args.shippingAddress.country ?? 'US' },
         billingAddress: args.billingAddress
@@ -78,10 +44,8 @@ export const create = async (
 
 export const fetch = async (
     args: z.infer<typeof types.fetch.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.fetch.res>> => {
-    args = types.fetch.args.parse(args)
-
     const order = orders.find(o => o.id === args.id)
     if (!order) throw new Error(`Order with ID ${args.id} not found`)
 
@@ -90,10 +54,8 @@ export const fetch = async (
 
 export const update = async (
     args: z.infer<typeof types.update.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.update.res>> => {
-    args = types.update.args.parse(args)
-
     const order = orders.find(o => o.id === args.id)
     if (!order) throw new Error(`Order with ID ${args.id} not found`)
 
@@ -106,16 +68,14 @@ export const update = async (
     return { id: order.id, status: order.status, updatedAt: order.updatedAt }
 }
 
-export const list = async (): Promise<Order[]> => {
+export const list = async (): Promise<z.infer<typeof types.list.res>> => {
     return orders
 }
 
 export const resolve = async (
     args: z.infer<typeof types.resolve.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.resolve.res>> => {
-    args = types.resolve.args.parse(args)
-
     const order = orders.find(o => o.id === args.id)
     if (!order) return { status: 'not_found' }
 
@@ -124,7 +84,7 @@ export const resolve = async (
         order: {
             id: order.id,
             customerName: `Customer #${order.customerId}`,
-            orderStatus: order.status as any,
+            orderStatus: order.status,
             total: order.total
         }
     }
@@ -132,14 +92,12 @@ export const resolve = async (
 
 export const statusFilter = async (
     args: z.infer<typeof types.statusFilter.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.statusFilter.res>> => {
-    args = types.statusFilter.args.parse(args)
-
     return {
         orders: orders
             .filter(o => o.status === args.status)
-            .map(o => ({ id: o.id, status: o.status as any, total: o.total }))
+            .map(o => ({ id: o.id, status: o.status, total: o.total }))
     }
 }
 
@@ -147,10 +105,8 @@ const orderTags: Map<number, (string | number)[]> = new Map()
 
 export const tag = async (
     args: z.infer<typeof types.tag.args>,
-    context: Context
+    _context: Context
 ): Promise<z.infer<typeof types.tag.res>> => {
-    args = types.tag.args.parse(args)
-
     const order = orders.find(o => o.id === args.orderId)
     if (!order) throw new Error(`Order with ID ${args.orderId} not found`)
 
@@ -162,10 +118,10 @@ export const tag = async (
 }
 
 export const primitives = async (
+    // Kept for signature/validation; underscore-prefixing would leak into the generated client
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     args: z.infer<typeof types.primitives.args>
 ): Promise<z.infer<typeof types.primitives.res>> => {
-    args = types.primitives.args.parse(args)
-
     return {
         str: 'hello',
         num: 42,

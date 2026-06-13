@@ -18,9 +18,26 @@ const orderItemSchema = z.object({
     discount: z.number().nullable() // ZodNullable<ZodNumber> → number | null
 })
 
+const orderStatusEnum = z.enum(['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'])
+
+const orderSchema = z.object({
+    id: z.number(),
+    customerId: z.number(),
+    status: orderStatusEnum,
+    total: z.number(),
+    items: z.array(orderItemSchema),
+    shippingAddress: addressSchema,
+    billingAddress: addressSchema.nullable(),
+    isGift: z.boolean(),
+    giftMessage: z.string().nullable(),
+    createdAt: z.date(),
+    updatedAt: z.date().nullable()
+})
+
 // --- create ---
 
 export const create = {
+    description: 'Create a new order',
     args: z.object({
         customerId: z.number().min(1),
         items: z.array(orderItemSchema), // ZodArray<ZodObject> → {...}[]
@@ -33,7 +50,7 @@ export const create = {
     }),
     res: z.object({
         id: z.number(),
-        status: z.string(),
+        status: orderStatusEnum,
         total: z.number(),
         items: z.array(orderItemSchema),
         createdAt: z.date() // ZodDate → Date
@@ -43,45 +60,34 @@ export const create = {
 // --- fetch ---
 
 export const fetch = {
+    description: 'Fetch an order by ID',
     args: z.object({
         id: z.number().min(1)
     }),
-    res: z.object({
-        id: z.number(),
-        customerId: z.number(),
-        status: z.string(),
-        total: z.number(),
-        items: z.array(orderItemSchema),
-        shippingAddress: addressSchema,
-        billingAddress: addressSchema.nullable(),
-        isGift: z.boolean(),
-        giftMessage: z.string().nullable(),
-        createdAt: z.date(),
-        updatedAt: z.date().nullable() // ZodNullable<ZodDate> → Date | null
-    })
+    res: orderSchema
 }
 
 // --- update ---
 
 export const update = {
+    description: 'Update an existing order',
     args: z.object({
         id: z.number().min(1),
-        status: z.string().optional(),
+        status: orderStatusEnum.optional(),
         shippingAddress: addressSchema.optional(), // ZodOptional<ZodObject> → {...}?
         giftMessage: z.string().nullable().optional()
     }),
     res: z.object({
         id: z.number(),
-        status: z.string(),
+        status: orderStatusEnum,
         updatedAt: z.date()
     })
 }
 
 // --- resolve: exercises ZodDiscriminatedUnion + ZodLiteral + ZodEnum ---
 
-const orderStatusEnum = z.enum(['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'])
-
 export const resolve = {
+    description: 'Resolve order status — returns found or not_found',
     args: z.object({
         id: z.number().min(1)
     }),
@@ -104,6 +110,7 @@ export const resolve = {
 // --- statusFilter: exercises ZodEnum in args and response ---
 
 export const statusFilter = {
+    description: 'Filter orders by status',
     args: z.object({
         status: orderStatusEnum
     }),
@@ -121,6 +128,7 @@ export const statusFilter = {
 // --- tag: exercises ZodUnion ---
 
 export const tag = {
+    description: 'Tag an order with a string or numeric label',
     args: z.object({
         orderId: z.number().min(1),
         tag: z.union([z.string(), z.number()])
@@ -132,9 +140,17 @@ export const tag = {
     })
 }
 
+// --- list ---
+
+export const list = {
+    description: 'List all orders',
+    res: z.array(orderSchema)
+}
+
 // --- primitives: exercises all remaining keyword types ---
 
 export const primitives = {
+    description: 'Return all primitive type examples',
     args: z.object({
         key: z.string()
     }),

@@ -1,7 +1,7 @@
 import { createMiddleware } from '..'
 
 // Global middleware — runs for every route (lowest specificity)
-createMiddleware('*', async (req, res) => {
+createMiddleware('*', async (_req, _res) => {
     return {
         context: {
             requestedAt: Date.now()

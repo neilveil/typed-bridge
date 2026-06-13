@@ -233,6 +233,117 @@ const removeSecondParamTransformer: ts.TransformerFactory<ts.SourceFile> = conte
 
 /**
  * Transformer #3:
+ * Resolve ExtractHandlers<T> in the _default declaration by unwrapping
+ * { handler: fn, ... } entries to just the function type.
+ * Also removes helper type definitions and the entries declaration that
+ * leak from defineBridge() usage.
+ */
+const unwrapBridgeEntryTransformer: ts.TransformerFactory<ts.SourceFile> = _context => {
+    return sourceFile => {
+        const helperTypes = new Set(['BridgeEntry', 'BridgeEntries', 'ExtractHandlers'])
+
+        function resolveHandlers(typeLiteral: ts.TypeLiteralNode): ts.TypeLiteralNode {
+            const members = typeLiteral.members.map(member => {
+                if (!ts.isPropertySignature(member) || !member.type) return member
+
+                if (ts.isTypeLiteralNode(member.type)) {
+                    const handlerProp = member.type.members.find(
+                        m =>
+                            ts.isPropertySignature(m) &&
+                            ts.isIdentifier(m.name) &&
+                            m.name.text === 'handler' &&
+                            m.type &&
+                            ts.isFunctionTypeNode(m.type)
+                    )
+                    if (handlerProp && ts.isPropertySignature(handlerProp) && handlerProp.type) {
+                        return ts.factory.updatePropertySignature(
+                            member,
+                            member.modifiers,
+                            member.name,
+                            member.questionToken,
+                            handlerProp.type
+                        )
+                    }
+                }
+
+                return member
+            })
+            return ts.factory.createTypeLiteralNode(members)
+        }
+
+        const updatedStatements: ts.Statement[] = []
+        for (const stmt of sourceFile.statements) {
+            // Remove helper type aliases
+            if (ts.isTypeAliasDeclaration(stmt) && helperTypes.has(stmt.name.text)) continue
+
+            // Remove entries declaration
+            if (ts.isVariableStatement(stmt)) {
+                const decl = stmt.declarationList.declarations[0]
+                if (decl && ts.isIdentifier(decl.name) && decl.name.text === 'entries') continue
+            }
+
+            // Resolve ExtractHandlers<T> on _default
+            if (ts.isVariableStatement(stmt)) {
+                const decl = stmt.declarationList.declarations[0]
+                if (
+                    decl &&
+                    ts.isIdentifier(decl.name) &&
+                    decl.name.text === '_default' &&
+                    decl.type &&
+                    ts.isTypeReferenceNode(decl.type) &&
+                    ts.isIdentifier(decl.type.typeName) &&
+                    decl.type.typeName.text === 'ExtractHandlers' &&
+                    decl.type.typeArguments?.length === 1 &&
+                    ts.isTypeLiteralNode(decl.type.typeArguments[0])
+                ) {
+                    const resolved = resolveHandlers(decl.type.typeArguments[0])
+                    const newDecl = ts.factory.updateVariableDeclaration(
+                        decl,
+                        decl.name,
+                        decl.exclamationToken,
+                        resolved,
+                        decl.initializer
+                    )
+                    updatedStatements.push(
+                        ts.factory.updateVariableStatement(
+                            stmt,
+                            stmt.modifiers,
+                            ts.factory.updateVariableDeclarationList(stmt.declarationList, [newDecl])
+                        )
+                    )
+                    continue
+                }
+            }
+
+            // Strip entries from named exports
+            if (ts.isExportDeclaration(stmt) && stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
+                const filtered = stmt.exportClause.elements.filter(
+                    el => el.name.text !== 'entries' && el.propertyName?.text !== 'entries'
+                )
+                if (filtered.length === 0) continue
+                if (filtered.length !== stmt.exportClause.elements.length) {
+                    updatedStatements.push(
+                        ts.factory.updateExportDeclaration(
+                            stmt,
+                            stmt.modifiers,
+                            stmt.isTypeOnly,
+                            ts.factory.updateNamedExports(stmt.exportClause, filtered),
+                            stmt.moduleSpecifier,
+                            stmt.attributes
+                        )
+                    )
+                    continue
+                }
+            }
+
+            updatedStatements.push(stmt)
+        }
+        return ts.factory.updateSourceFile(sourceFile, ts.factory.createNodeArray(updatedStatements))
+    }
+}
+
+/**
+ * Transformer #4:
  * Remove "export { _default as default }" if it exists.
  */
 const removeDefaultExportTransformer: ts.TransformerFactory<ts.SourceFile> = context => {
@@ -281,6 +392,7 @@ export default function cleanTsFile(src: string) {
 
     // Run the transformers
     const result = ts.transform(sourceFile, [
+        unwrapBridgeEntryTransformer,
         resolveZodTypesTransformer,
         removeSecondParamTransformer,
         removeDefaultExportTransformer
