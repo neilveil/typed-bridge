@@ -7,6 +7,10 @@ export type BridgeEntry = {
     context?: string
     args?: z.ZodType
     res: z.ZodType
+    // Exposed as an MCP tool by default. Set `false` to hide a handler from MCP clients.
+    mcp?: boolean
+    // Exposed as an LLM tool by default. Set `false` to hide a handler from LLM tool calling.
+    llm?: boolean
 }
 
 export type BridgeEntries = Record<string, BridgeEntry>
@@ -79,6 +83,8 @@ export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) 
     const tools: unknown[] = []
 
     for (const [name, entry] of Object.entries(entries)) {
+        if (entry.llm === false) continue
+
         const description = entry.description
         const parameters = entry.args ? schemaToJSONSchema(entry.args) : NO_ARGS_SCHEMA
 
@@ -180,6 +186,7 @@ export function toolSearch(entries: BridgeEntries, context?: string) {
     const results: unknown[] = []
 
     for (const [name, entry] of Object.entries(entries)) {
+        if (entry.llm === false) continue
         if (context && entry.context && entry.context !== context) continue
 
         results.push({
@@ -212,6 +219,11 @@ export async function handleMetaToolCall(
 
         case 'tool_use': {
             const args = toolCall.arguments as { name: string; arguments?: Record<string, unknown> }
+
+            // Block execution of hidden tools, not just their discovery
+            const entry = entries[args.name]
+            if (!entry || entry.llm === false) throw new Error(`Tool not found: ${args.name}`)
+
             return toolUse(bridge, args.name, args.arguments || {}, context)
         }
 

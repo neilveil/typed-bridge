@@ -29,14 +29,19 @@ function createMCPServer(
 ): Server {
     const server = new Server({ name: 'typed-bridge', version: '1.0.0' }, { capabilities: { tools: {} } })
 
+    // An entry is exposed to MCP unless it explicitly opts out with `mcp: false`
+    const isExposed = (entry?: BridgeEntries[string]) => !!entry && entry.mcp !== false
+
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-        const tools = Object.entries(entries).map(([name, entry]) => ({
-            name,
-            description: entry.description,
-            inputSchema: entry.args
-                ? schemaToJSONSchema(entry.args)
-                : { type: 'object' as const, properties: {} }
-        }))
+        const tools = Object.entries(entries)
+            .filter(([, entry]) => isExposed(entry))
+            .map(([name, entry]) => ({
+                name,
+                description: entry.description,
+                inputSchema: entry.args
+                    ? schemaToJSONSchema(entry.args)
+                    : { type: 'object' as const, properties: {} }
+            }))
 
         return { tools }
     })
@@ -45,6 +50,9 @@ function createMCPServer(
         const { name, arguments: args } = request.params
 
         try {
+            // Block execution of hidden tools, not just their listing
+            if (!isExposed(entries[name])) throw new Error(`Tool not found: ${name}`)
+
             const handler = bridge[name]
             if (!handler) throw new Error(`Tool not found: ${name}`)
 

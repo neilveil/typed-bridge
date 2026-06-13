@@ -10,7 +10,7 @@ export const entries = {
     'user.fetch': { handler: user.fetch, context: 'user', ...userTypes.fetch },
     'user.create': { handler: user.create, context: 'user', ...userTypes.create },
     'user.update': { handler: user.update, context: 'user', ...userTypes.update },
-    'user.remove': { handler: user.remove, context: 'user', ...userTypes.remove },
+    'user.remove': { handler: user.remove, context: 'user', ...userTypes.remove, mcp: false }, // destructive, hidden from MCP
     'user.fetchAll': { handler: user.fetchAll, context: 'user', ...userTypes.fetchAll },
 
     'product.fetch': { handler: product.fetch, context: 'product', ...productTypes.fetch },

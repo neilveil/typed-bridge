@@ -173,6 +173,23 @@ createBridge(bridge, 8080, '/bridge', {
 
 The returned context lands in every handler as the second argument, exactly like middleware context. Same security model for humans and agents.
 
+### Choose what each surface can touch
+
+MCP and LLM tools are independent surfaces. Every entry is exposed to both by default, and two flags let you hide a handler from either one while it stays fully callable over HTTP:
+
+- `mcp: false` keeps a handler off the MCP server.
+- `llm: false` keeps it out of `toLLMTools`, tool search, and the `/bridge/tools` endpoint.
+
+```ts
+export const entries = {
+    'user.fetch': { handler: user.fetch, ...userTypes.fetch },
+    'user.remove': { handler: user.remove, ...userTypes.remove, mcp: false }, // your LLM app can call it, external MCP clients cannot
+    'admin.sync': { handler: admin.sync, ...adminTypes.sync, llm: false } // HTTP and MCP only, never an LLM tool
+}
+```
+
+Hidden tools are dropped from discovery and rejected if called by name, so a model cannot reach them even by guessing.
+
 ---
 
 ## Superpower 3: LLM tool calling
