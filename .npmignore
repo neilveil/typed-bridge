@@ -3,3 +3,8 @@
 eslint.config.mjs
 src
 tsconfig.json
+.agents
+.env.example
+assets
+dist/demo
+test
