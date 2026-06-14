@@ -250,6 +250,42 @@ const removeSecondParamTransformer: ts.TransformerFactory<ts.SourceFile> = conte
 
 /**
  * Transformer #3:
+ * Make any parameter typed as `undefined` optional so callers can omit it.
+ * e.g. `(_args: undefined) => Promise<...>` → `(_args?: undefined) => Promise<...>`
+ */
+const optionalUndefinedParamTransformer: ts.TransformerFactory<ts.SourceFile> = context => {
+    return sourceFile => {
+        function visitor(node: ts.Node): ts.Node {
+            if (ts.isFunctionTypeNode(node)) {
+                const params = node.parameters.map(param => {
+                    if (
+                        param.type &&
+                        ts.isToken(param.type) &&
+                        param.type.kind === ts.SyntaxKind.UndefinedKeyword &&
+                        !param.questionToken
+                    ) {
+                        return ts.factory.updateParameterDeclaration(
+                            param,
+                            param.modifiers,
+                            param.dotDotDotToken,
+                            param.name,
+                            ts.factory.createToken(ts.SyntaxKind.QuestionToken),
+                            param.type,
+                            param.initializer
+                        )
+                    }
+                    return param
+                })
+                return ts.factory.updateFunctionTypeNode(node, node.typeParameters, ts.factory.createNodeArray(params), node.type)
+            }
+            return ts.visitEachChild(node, visitor, context)
+        }
+        return ts.visitEachChild(sourceFile, visitor, context) as ts.SourceFile
+    }
+}
+
+/**
+ * Transformer #4:
  * Resolve ExtractHandlers<T> in the _default declaration by unwrapping
  * { handler: fn, ... } entries to just the function type.
  * Also removes helper type definitions and the entries declaration that
@@ -375,7 +411,7 @@ const unwrapBridgeEntryTransformer: ts.TransformerFactory<ts.SourceFile> = _cont
 }
 
 /**
- * Transformer #4:
+ * Transformer #5:
  * Remove the rollup default export (`export { X as default }` for any X, or
  * `export default X`). The proxy snippet provides its own default export.
  */
@@ -412,7 +448,7 @@ const removeDefaultExportTransformer: ts.TransformerFactory<ts.SourceFile> = _co
 }
 
 /**
- * Transformer #5:
+ * Transformer #6:
  * Drop every top-level statement that is not reachable from the `TypedBridge`
  * alias. When typed-bridge is an external dependency, rollup leaves behind stray
  * imports (e.g. `import * as ... from 'typed-bridge/dist/tools'`) and inlined
@@ -518,6 +554,7 @@ export default function cleanTsFile(src: string) {
         unwrapBridgeEntryTransformer,
         resolveZodTypesTransformer,
         removeSecondParamTransformer,
+        optionalUndefinedParamTransformer,
         removeDefaultExportTransformer,
         pruneUnreachableTransformer
     ])
