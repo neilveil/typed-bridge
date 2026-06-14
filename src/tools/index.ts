@@ -54,6 +54,13 @@ export function defineBridge<T extends BridgeEntries>(entries: T): ExtractHandle
 
 const NO_ARGS_SCHEMA = { type: 'object' as const, properties: {}, additionalProperties: false as const }
 
+export function toToolInputSchema(args?: z.ZodType) {
+    if (!args) return { ...NO_ARGS_SCHEMA }
+    const s = schemaToJSONSchema(args)
+    if (!s || s.type !== 'object') return { ...NO_ARGS_SCHEMA }
+    return s
+}
+
 export function schemaToJSONSchema(schema: z.ZodType) {
     const jsonSchema: any = z.toJSONSchema(schema, {
         unrepresentable: 'any',
@@ -86,7 +93,7 @@ export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) 
         if (entry.llm === false) continue
 
         const description = entry.description
-        const parameters = entry.args ? schemaToJSONSchema(entry.args) : NO_ARGS_SCHEMA
+        const parameters = toToolInputSchema(entry.args)
 
         let response: unknown
         if (includeResponse) response = schemaToJSONSchema(entry.res)
@@ -217,7 +224,7 @@ export function toolDescribe(entries: BridgeEntries, name: string) {
     return {
         name,
         description: entry.description,
-        args: entry.args ? schemaToJSONSchema(entry.args) : NO_ARGS_SCHEMA,
+        args: toToolInputSchema(entry.args),
         response: schemaToJSONSchema(entry.res)
     }
 }

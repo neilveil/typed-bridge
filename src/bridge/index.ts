@@ -213,9 +213,9 @@ const bridgeHandler =
             if (tbConfig.logs.argsOnError) console.error(`ARGS | ${id} ::`, JSON.stringify(args, null, 2))
             if (tbConfig.logs.contextOnError) console.error(`CONTEXT | ${id} ::`, JSON.stringify(context, null, 2))
 
-            if (Array.isArray(error.errors)) {
-                const keyPath = error.errors[0].path.join('/')
-                const errorMessage = (keyPath ? keyPath + ': ' : '') + error.errors[0].message
+            if (Array.isArray(error.issues) && error.issues.length) {
+                const keyPath = error.issues[0].path.join('/')
+                const errorMessage = (keyPath ? keyPath + ': ' : '') + error.issues[0].message
                 return res.status(400).send(errorMessage)
             }
 

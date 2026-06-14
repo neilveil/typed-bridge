@@ -4,7 +4,7 @@ import { Application, Request, Response } from 'express'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { Bridge, BridgeEntries, enforceToolOutputLimit, schemaToJSONSchema } from '../tools'
+import { Bridge, BridgeEntries, enforceToolOutputLimit, toToolInputSchema } from '../tools'
 
 export type MCPGetContext = (headers: IncomingHttpHeaders) => Record<string, unknown> | Promise<Record<string, unknown>>
 
@@ -38,9 +38,7 @@ function createMCPServer(
             .map(([name, entry]) => ({
                 name,
                 description: entry.description,
-                inputSchema: entry.args
-                    ? schemaToJSONSchema(entry.args)
-                    : { type: 'object' as const, properties: {} }
+                inputSchema: toToolInputSchema(entry.args)
             }))
 
         return { tools }

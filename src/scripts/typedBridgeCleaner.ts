@@ -65,7 +65,27 @@ const resolveZodTypesTransformer: ts.TransformerFactory<ts.SourceFile> = context
             ZodVoid: ts.SyntaxKind.VoidKeyword,
             ZodAny: ts.SyntaxKind.AnyKeyword,
             ZodUnknown: ts.SyntaxKind.UnknownKeyword,
-            ZodNever: ts.SyntaxKind.NeverKeyword
+            ZodNever: ts.SyntaxKind.NeverKeyword,
+            // Zod 4 branded string types
+            ZodEmail: ts.SyntaxKind.StringKeyword,
+            ZodURL: ts.SyntaxKind.StringKeyword,
+            ZodUUID: ts.SyntaxKind.StringKeyword,
+            ZodEmoji: ts.SyntaxKind.StringKeyword,
+            ZodNanoID: ts.SyntaxKind.StringKeyword,
+            ZodCUID: ts.SyntaxKind.StringKeyword,
+            ZodCUID2: ts.SyntaxKind.StringKeyword,
+            ZodULID: ts.SyntaxKind.StringKeyword,
+            ZodIPv4: ts.SyntaxKind.StringKeyword,
+            ZodIPv6: ts.SyntaxKind.StringKeyword,
+            ZodCIDRv4: ts.SyntaxKind.StringKeyword,
+            ZodCIDRv6: ts.SyntaxKind.StringKeyword,
+            ZodBase64: ts.SyntaxKind.StringKeyword,
+            ZodBase64URL: ts.SyntaxKind.StringKeyword,
+            ZodJWT: ts.SyntaxKind.StringKeyword,
+            // Zod 4 branded number types
+            ZodInt: ts.SyntaxKind.NumberKeyword,
+            ZodFloat32: ts.SyntaxKind.NumberKeyword,
+            ZodFloat64: ts.SyntaxKind.NumberKeyword
         }
 
         function getZodRef(node: ts.TypeNode): { name: string; typeArgs?: ts.NodeArray<ts.TypeNode> } | null {
