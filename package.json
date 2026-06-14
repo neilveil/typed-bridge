@@ -1,7 +1,7 @@
 {
     "name": "typed-bridge",
     "description": "Type-safe server functions for TypeScript that also expose your backend as an MCP server and LLM tools for AI agents",
-    "version": "3.0.0",
+    "version": "3.0.1",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "author": "neilveil",
