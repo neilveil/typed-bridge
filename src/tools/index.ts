@@ -281,21 +281,46 @@ export function getMetaTools(options?: { format?: LLMToolFormat }) {
 }
 
 export function toolSearch(entries: BridgeEntries, query?: string, surface: ToolSurface = 'llm') {
-    const results: { name: string; description?: string }[] = []
-    const q = query?.toLowerCase()
+    const visible: { name: string; description?: string }[] = []
 
     for (const [name, entry] of Object.entries(entries)) {
         if (!isEntryVisible(entry, surface)) continue
-
-        if (q) {
-            const haystack = `${name} ${entry.description || ''}`.toLowerCase()
-            if (!haystack.includes(q)) continue
-        }
-
-        results.push({ name, description: entry.description })
+        visible.push({ name, description: entry.description })
     }
 
-    return results
+    const q = query?.trim().toLowerCase()
+    if (!q) return visible
+
+    // Tokenize the query so natural, multi-word searches still match. A plain substring
+    // match fails on queries like "views analytics last 3 days" because the whole phrase is
+    // never a contiguous substring of any tool. Instead we score each tool by how many query
+    // tokens appear in its name/description, with a big boost for a full-phrase hit, and
+    // return only matching tools ranked best-first.
+    //
+    // Single-character tokens (stray punctuation splits, lone digits like "3") are dropped:
+    // they match almost everything and only add noise to results the model has to sift through.
+    const tokens = q.split(/[^a-z0-9]+/).filter(token => token.length > 1)
+
+    return visible
+        .map(tool => {
+            const name = tool.name.toLowerCase()
+            const description = (tool.description || '').toLowerCase()
+            const haystack = `${name} ${description}`
+
+            // A full-phrase hit dominates; name hits outweigh description hits so the most
+            // on-point tools rank above ones that only mention a token in passing.
+            const phraseScore = haystack.includes(q) ? 1000 : 0
+            const tokenScore = tokens.reduce((score, token) => {
+                if (name.includes(token)) return score + 3
+                if (description.includes(token)) return score + 1
+                return score
+            }, 0)
+
+            return { tool, score: phraseScore + tokenScore }
+        })
+        .filter(scored => scored.score > 0)
+        .sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
+        .map(scored => scored.tool)
 }
 
 export function toolDescribe(entries: BridgeEntries, name: string, surface: ToolSurface = 'llm') {
