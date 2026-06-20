@@ -1,7 +1,7 @@
 {
     "name": "typed-bridge",
     "description": "Type-safe server functions for TypeScript that also expose your backend as an MCP server and LLM tools for AI agents",
-    "version": "3.0.1",
+    "version": "4.0.0",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "author": "neilveil",
@@ -13,6 +13,7 @@
         "test:server": "tsx --watch src/demo/index.ts",
         "test:cli": "tsx src/scripts/cli.ts gen-typed-bridge-client --src ./src/demo/bridge/index.ts --dest ./test/bridge.ts",
         "test:bridge": "tsx test/index.ts",
+        "test:mcp": "tsx test/mcp.ts",
         "test:llm": "tsx test/llm.ts",
         "lint": "eslint",
         "prepublishOnly": "npm run dist"

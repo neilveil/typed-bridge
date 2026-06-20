@@ -3,6 +3,16 @@ export { createBridge, createMiddleware, onShutdown } from './bridge'
 export { config as tbConfig } from './config'
 export { mountMCP } from './mcp'
 export type { MCPGetContext } from './mcp'
-export { defineBridge, getMetaTools, handleMetaToolCall, toLLMTools, toolDescribe, toolSearch, toolUse } from './tools'
-export type { Bridge, BridgeEntries, BridgeEntry, LLMToolFormat, ToLLMToolsOptions, ToolCall } from './tools'
+export { defineBridge, defineEntry, getTools, handleToolCall, isToolMode, TOOL_MODES } from './tools'
+export type {
+    Bridge,
+    BridgeEntries,
+    BridgeEntry,
+    GetToolsOptions,
+    HandleToolCallOptions,
+    LLMToolFormat,
+    ToolCall,
+    ToolMode,
+    ToolSurface
+} from './tools'
 export { z } from 'zod'

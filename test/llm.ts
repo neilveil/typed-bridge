@@ -2,16 +2,20 @@
  * LLM integration tests using OpenAI gpt-4o-mini.
  * Requires OPENAI_API_KEY. Non-deterministic — may occasionally flake due to LLM behavior.
  * Run separately: `npm run test:llm`
+ *
+ * Exercises the `on_demand` tool mode end-to-end: the model is handed the 3 meta-tools
+ * (`tool_search`, `tool_describe`, `tool_use`) via `getTools`, and every call is dispatched
+ * through the mode-agnostic `handleToolCall`.
  */
 
 import 'dotenv/config'
 import OpenAI from 'openai'
-import { defineBridge, getMetaTools, handleMetaToolCall } from '../src/tools'
+import { defineBridge, getTools, handleToolCall } from '../src/tools'
 import { entries } from '../src/demo/bridge'
 
 const openai = new OpenAI()
 const bridge = defineBridge(entries)
-const tools = getMetaTools({ format: 'openai' }) as OpenAI.Chat.ChatCompletionTool[]
+const tools = getTools(entries, { toolMode: 'on_demand', format: 'openai' }) as OpenAI.Chat.ChatCompletionTool[]
 
 let passed = 0
 let failed = 0
@@ -69,6 +73,8 @@ async function runConversation(
         }
 
         for (const tc of msg.tool_calls) {
+            if (tc.type !== 'function') continue
+
             const toolCall = {
                 name: tc.function.name,
                 arguments: JSON.parse(tc.function.arguments)
@@ -77,7 +83,7 @@ async function runConversation(
 
             let result: unknown
             try {
-                result = await handleMetaToolCall(bridge, entries, toolCall, authContext)
+                result = await handleToolCall(bridge, entries, toolCall, { context: authContext })
             } catch (error: unknown) {
                 result = { error: error instanceof Error ? error.message : String(error) }
             }
@@ -92,7 +98,7 @@ async function runConversation(
 
     return {
         messages,
-        lastAssistantMessage: messages.filter(m => m.role === 'assistant').pop()?.content as string || '',
+        lastAssistantMessage: (messages.filter(m => m.role === 'assistant').pop()?.content as string) || '',
         toolCalls: toolCallNames
     }
 }
@@ -100,7 +106,7 @@ async function runConversation(
 async function main() {
     console.log('\n--- LLM Integration Tests (OpenAI gpt-4o-mini) ---\n')
 
-    // Test 1: LLM discovers and uses tools via meta-tools
+    // Test 1: discover + use — the core on_demand flow
     await test('LLM uses tool_search then tool_use to fetch users', async () => {
         const { toolCalls, lastAssistantMessage } = await runConversation(
             'You are a helpful assistant. Use the provided tools to answer questions. Always search for tools first before using them.',
@@ -116,13 +122,12 @@ async function main() {
         )
     })
 
-    // Test 2: Context filtering — LLM only sees user tools when searching 'user' context
-    await test('tool_search with context filters correctly', async () => {
+    // Test 2: keyword search surfaces the right tools and excludes unrelated ones
+    await test('tool_search by keyword finds user tools, not product/order', async () => {
         const { toolCalls, lastAssistantMessage } = await runConversation(
             `You are a helpful assistant. Use the provided tools.
-When searching for tools, use context="user" to find user-related tools.
-After searching, tell me the exact tool names you found, as a comma-separated list. Do NOT call tool_use.`,
-            'Search for user-related tools and list their names.',
+Search for tools with query="user". After searching, list the exact tool names you found as a comma-separated list. Do NOT call tool_use.`,
+            'Search for user tools and list their names.',
             { requestedAt: Date.now(), userId: 1 }
         )
 
@@ -133,23 +138,27 @@ After searching, tell me the exact tool names you found, as a comma-separated li
         assert(!lastAssistantMessage.includes('order.create'), 'Should NOT include order tools')
     })
 
-    // Test 3: Context filtering — product context
-    await test('tool_search with product context returns product tools', async () => {
+    // Test 3: describe before use — the model must inspect the output schema.
+    // Asking for the exact fields a tool *returns* (incl. createdAt) is not guessable
+    // from the search description, so the model has to call tool_describe.
+    await test('tool_describe is used to read a tool output schema', async () => {
         const { toolCalls, lastAssistantMessage } = await runConversation(
             `You are a helpful assistant. Use the provided tools.
-When searching for tools, use context="product" to find product-related tools.
-After searching, tell me the exact tool names you found, as a comma-separated list. Do NOT call tool_use.`,
-            'Search for product-related tools and list their names.',
+You do NOT know any tool's schema from memory. To answer, you MUST call tool_search to find the tool, then tool_describe to read its schema. Never guess. Do NOT call tool_use.
+List every field name the tool RETURNS in its response.`,
+            'For the "create a new product" tool, list every field it returns in its response.',
             { requestedAt: Date.now(), userId: 1 }
         )
 
-        assert(toolCalls.includes('tool_search'), 'Expected tool_search call')
-        assert(lastAssistantMessage.includes('product.fetch'), 'Expected product.fetch in response')
-        assert(lastAssistantMessage.includes('product.list'), 'Expected product.list in response')
-        assert(!lastAssistantMessage.includes('user.fetch'), 'Should NOT include user tools')
+        assert(toolCalls.includes('tool_describe'), 'Expected tool_describe call')
+        const lower = lastAssistantMessage.toLowerCase()
+        assert(
+            lower.includes('createdat') && lower.includes('price'),
+            `Expected response fields (createdAt, price), got: ${lastAssistantMessage.slice(0, 200)}`
+        )
     })
 
-    // Test 4: LLM creates a user (tests write operations and auth context)
+    // Test 4: write op + auth context flows through tool_use
     await test('LLM creates a new user via tool_use with auth context', async () => {
         const { toolCalls, lastAssistantMessage } = await runConversation(
             'You are a helpful assistant. Use the provided tools to answer questions.',
@@ -161,7 +170,7 @@ After searching, tell me the exact tool names you found, as a comma-separated li
         assert(/\d+/.test(lastAssistantMessage), 'Expected a numeric user ID in response')
     })
 
-    // Test 5: Zod validation — LLM sends invalid args, error is returned
+    // Test 5: Zod validation errors surface back to the model
     await test('Zod validation error is returned to LLM for invalid args', async () => {
         const { toolCalls, lastAssistantMessage } = await runConversation(
             `You are a helpful assistant. Use the provided tools.
@@ -173,12 +182,16 @@ IMPORTANT: When calling tool_use for user.fetch, use id=0 (zero) exactly. Do not
         assert(toolCalls.includes('tool_use'), 'Expected tool_use call')
         const lower = lastAssistantMessage.toLowerCase()
         assert(
-            lower.includes('error') || lower.includes('too_small') || lower.includes('>=1') || lower.includes('validation') || lower.includes('minimum'),
+            lower.includes('error') ||
+                lower.includes('too_small') ||
+                lower.includes('>=1') ||
+                lower.includes('validation') ||
+                lower.includes('minimum'),
             `Expected validation error in response, got: ${lastAssistantMessage.slice(0, 300)}`
         )
     })
 
-    // Test 6: Multi-step — LLM creates a product then lists all products
+    // Test 6: multi-step — create then read back
     await test('LLM performs multi-step: create product then list', async () => {
         const { toolCalls, lastAssistantMessage } = await runConversation(
             'You are a helpful assistant. Use the provided tools.',
@@ -189,40 +202,11 @@ IMPORTANT: When calling tool_use for user.fetch, use id=0 (zero) exactly. Do not
         const toolUseCount = toolCalls.filter(n => n === 'tool_use').length
         assert(toolUseCount >= 2, `Expected at least 2 tool_use calls, got ${toolUseCount}`)
         assert(
-            lastAssistantMessage.toLowerCase().includes('ai widget') || lastAssistantMessage.includes('4') || lastAssistantMessage.includes('5'),
+            lastAssistantMessage.toLowerCase().includes('ai widget') ||
+                lastAssistantMessage.includes('4') ||
+                lastAssistantMessage.includes('5'),
             `Expected product info in response`
         )
-    })
-
-    // Test 7: No context = all tools visible
-    await test('tool_search without context returns all tools', async () => {
-        const { toolCalls, lastAssistantMessage } = await runConversation(
-            `You are a helpful assistant. Use the provided tools.
-Search for all available tools (do not pass any context filter). Tell me the total number of tools found and list all their names.`,
-            'How many tools are available in total? List all of them.',
-            { requestedAt: Date.now(), userId: 1 }
-        )
-
-        assert(toolCalls.includes('tool_search'), 'Expected tool_search call')
-        assert(
-            lastAssistantMessage.includes('16') ||
-                (lastAssistantMessage.includes('user.') &&
-                    lastAssistantMessage.includes('product.') &&
-                    lastAssistantMessage.includes('order.')),
-            `Expected all 16 tools or mixed contexts in response, got: ${lastAssistantMessage.slice(0, 300)}`
-        )
-    })
-
-    // Test 8: Contextless tools (order.primitives) appear in any context search
-    await test('contextless tools appear in filtered searches', async () => {
-        const { lastAssistantMessage } = await runConversation(
-            `You are a helpful assistant. Use the provided tools.
-Search for tools with context="product". List ALL tool names you find, including any that have no context. Be exhaustive.`,
-            'Search for product context tools and list every single tool name.',
-            { requestedAt: Date.now(), userId: 1 }
-        )
-
-        assert(lastAssistantMessage.includes('order.primitives'), 'Expected order.primitives (no context) to appear in product search')
     })
 
     console.log(`\n--- Results: ${passed} passed, ${failed} failed ---\n`)

@@ -7,11 +7,13 @@ import _path from 'path'
 import { tbConfig } from '..'
 import { getPatternSpecificity, matchesPattern, printStartLogs, printStopLogs } from '../helpers'
 import { MCPGetContext, mountMCP } from '../mcp'
-import { Bridge, BridgeEntries, isLLMToolFormat, LLMToolFormat, LLM_TOOL_FORMATS, toLLMTools } from '../tools'
+import { Bridge, BridgeEntries, ToolMode } from '../tools'
 
 interface CreateBridgeOptions {
     entries?: BridgeEntries
-    toolsFormat?: LLMToolFormat
+    // How the MCP server presents tools. 'on_demand' (default) exposes the 3 meta-tools;
+    // 'attach_all' lists every visible entry as its own tool.
+    toolMode?: ToolMode
     mcp?: boolean | string
     mcpGetContext?: MCPGetContext
 }
@@ -119,36 +121,10 @@ export const createBridge = (
         })
     })
 
-    // LLM tools endpoint
-    if (options?.entries) {
-        const entries = options.entries
-        const defaultFormat: LLMToolFormat = options.toolsFormat || 'openai'
-
-        app.get(_path.join(path, 'tools'), (req: Request, res: Response) => {
-            const requestedFormat = req.query.format
-
-            // No format provided → use the configured default
-            if (requestedFormat === undefined) {
-                res.json(toLLMTools(entries, { format: defaultFormat }))
-                return
-            }
-
-            // Reject unknown formats instead of silently returning an empty tool list
-            if (typeof requestedFormat !== 'string' || !isLLMToolFormat(requestedFormat)) {
-                res.status(400).json({
-                    error: `Invalid format: ${String(requestedFormat)}. Expected one of ${LLM_TOOL_FORMATS.join(', ')}`
-                })
-                return
-            }
-
-            res.json(toLLMTools(entries, { format: requestedFormat }))
-        })
-    }
-
     // MCP endpoint
     if (options?.mcp && options?.entries) {
         const mcpPath = typeof options.mcp === 'string' ? options.mcp : _path.join(path, 'mcp')
-        mountMCP(app, bridge, options.entries, mcpPath, options.mcpGetContext)
+        mountMCP(app, bridge, options.entries, mcpPath, options.mcpGetContext, options.toolMode || 'on_demand')
     }
 
     app.use(path, bridgeHandler(bridge))

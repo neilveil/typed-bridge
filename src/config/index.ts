@@ -9,7 +9,8 @@ interface config {
     responseDelay: number
     // Max serialized (JSON) length of a tool result returned over the MCP and LLM tool
     // surfaces. Oversized results are rejected (not truncated) so the model can narrow
-    // its query instead of receiving invalid JSON. 0 disables the limit. HTTP is never capped.
+    // its query instead of receiving invalid JSON. Defaults to 100_000; set 0 to disable.
+    // HTTP is never capped.
     maxToolOutputChars: number
 }
 
@@ -22,5 +23,5 @@ export const config: config = {
         contextOnError: true
     },
     responseDelay: 0,
-    maxToolOutputChars: 0
+    maxToolOutputChars: 100_000
 }

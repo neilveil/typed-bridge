@@ -4,29 +4,31 @@
 
 # Typed Bridge
 
-### Write one function. Get a typed API, an MCP server, and LLM tools.
+### Let AI talk to your API. Natively.
 
 [![Downloads](https://img.shields.io/npm/dm/typed-bridge.svg)](https://www.npmjs.com/package/typed-bridge)
 [![Version](https://img.shields.io/npm/v/typed-bridge.svg)](https://www.npmjs.com/package/typed-bridge)
 [![License](https://img.shields.io/npm/l/typed-bridge.svg)](https://github.com/neilveil/typed-bridge/blob/main/license.txt)
 
-**Type-safe RPC for humans. Native tools for AI. Zero glue code.**
+**Write one TypeScript function. Get a typed client, OpenAI & Anthropic tools, and an MCP server — from a single Zod schema.**
 
 </div>
 
 ---
 
-## Your backend just became AI-native
+## Stop maintaining two backends
 
-You already write plain TypeScript functions on your server. Typed Bridge takes those exact functions and hands you three things at once:
+Most backends now ship twice. Once for your app — then again for AI: tool schemas, an MCP server, agent integrations, all kept in sync by hand for months.
 
-1. A **fully typed client** your frontend calls like local functions.
-2. An **MCP server** so Cursor, Claude Desktop, and Windsurf can call your backend directly.
-3. **LLM tool definitions** so OpenAI and Anthropic can use your backend as tools.
+Typed Bridge kills the duplication. Write a TypeScript function once, describe it with Zod, and instantly get:
 
-Same function. Same validation. No second codebase for AI. No hand written tool schemas. No drift.
+- A **fully typed API client** for your frontend — React, Vue, Angular, React Native, anything.
+- **OpenAI & Anthropic tools** so your agents can call your backend.
+- An **MCP server** for Cursor, Claude, and Windsurf.
 
-> Every function you ship is instantly something an agent can call. That is the whole pitch.
+And auth is not an afterthought: **agents inherit the exact same auth context and permissions as your users** — an agent can never reach something the signed-in user can't. One function. One schema. Every surface, secured the same way.
+
+> Your backend just became AI-native.
 
 ---
 
@@ -38,11 +40,22 @@ flowchart LR
     B --> C[Typed client for your frontend]
     B --> D[MCP server for AI tools]
     B --> E[LLM tool definitions]
+    C --> H[React, Vue, Angular, React Native]
     D --> F[Cursor, Claude, Windsurf]
     E --> G[OpenAI, Anthropic, your agents]
 ```
 
 You describe a function once with a Zod schema. Typed Bridge derives the client types, the MCP tool schema, and the LLM tool schema from that single source. They can never fall out of sync, because there is only one truth.
+
+### What that unlocks
+
+Point Claude or Cursor at your backend and it works across your real functions, with your real auth:
+
+> **You:** "Email the invoice for order #1234 to the customer."
+>
+> The agent searches your tools, finds `order.fetch`, `invoice.create`, and `email.send`, reads their schemas, and calls them in turn — running as the signed-in user, blocked from anything that user can't touch.
+
+No glue code. No tool schemas written by hand. No second backend. Just your functions.
 
 ---
 
@@ -54,50 +67,60 @@ You describe a function once with a Zod schema. Typed Bridge derives the client 
 npm i typed-bridge
 ```
 
-### 2. Write a normal function
+### 2. Define your contexts (optional)
 
-`bridge/user/index.ts`:
+Name the shapes your middleware injects, so handlers can declare what they expect. `bridge/context.ts`:
 
 ```ts
-import { z } from 'typed-bridge'
-import * as types from './types'
-
-export const fetch = async (args: z.infer<typeof types.fetch.args>) => {
-    return db.users.findById(args.id)
-}
+export type user = { id: number }
+export type admin = { id: number; role: 'admin' }
+export type guest = { requestedAt: number }
 ```
 
-### 3. Describe it once
+### 3. Define an entry
 
-`bridge/user/types.ts`:
+One self-contained object per handler — schema and logic together. `bridge/user/index.ts`:
 
 ```ts
-import { z } from 'typed-bridge'
+import { z, defineEntry } from 'typed-bridge'
+import * as context from '../context'
 
-export const fetch = {
+export const fetch = defineEntry({
     description: 'Fetch a user by ID',
-    args: z.object({ id: z.number().min(1).describe('Unique user identifier') }),
-    res: z.object({ id: z.number(), name: z.string(), email: z.string() })
-}
+    args: z.object({
+        id: z.number().min(1).describe('Unique user identifier')
+    }),
+    res: z.object({
+        id: z.number().describe('User ID'),
+        name: z.string().describe('Full name'),
+        email: z.string().describe('Primary email address')
+    }),
+    handler: async (args, ctx: context.user) => {
+        return db.users.findById(args.id) // `args` is inferred as { id: number }
+    }
+})
 ```
 
-### 4. Wire it up with `defineBridge`
+`defineEntry` infers the handler's argument type from `args` and checks its return against `res` — no `z.infer<typeof ...>`, no manual `.parse()`, ever.
 
-`bridge/index.ts`:
+`.describe()` your `res` fields too, not just `args`. In `on_demand` mode the model reads the response schema via `tool_describe` before it calls, so those descriptions help it use the output correctly.
+
+### 4. Register your entries
+
+Map each route name straight to its entry. `bridge/index.ts`:
 
 ```ts
 import { defineBridge } from 'typed-bridge'
 import * as user from './user'
-import * as userTypes from './user/types'
 
 export const entries = {
-    'user.fetch': { handler: user.fetch, ...userTypes.fetch }
+    'user.fetch': user.fetch
 }
 
 export default defineBridge(entries)
 ```
 
-`defineBridge` auto-validates incoming args against your Zod schema. No manual `.parse()` in handlers, ever.
+A clean 1:1 mapping — `user.fetch` → `fetch`. No spreads, no schema copying. (Need to keep a handler off MCP or LLM? Add `mcp: false` / `llm: false` to its entry — covered in [Superpower 2](#choose-what-each-surface-can-touch).)
 
 ### 5. Boot the server, AI included
 
@@ -108,7 +131,7 @@ import bridge, { entries } from './bridge'
 createBridge(bridge, 8080, '/bridge', { entries, mcp: true })
 ```
 
-That is it. You now have a typed HTTP API, an MCP endpoint at `/bridge/mcp`, and an LLM tools endpoint at `/bridge/tools`. From one function.
+That is it. You now have a typed HTTP API and an MCP endpoint at `/bridge/mcp`. From one function.
 
 ---
 
@@ -130,6 +153,32 @@ typedBridgeConfig.host = 'http://localhost:8080/bridge'
 const user = await bridge['user.fetch']({ id: 1 })
 ```
 
+### Sending headers (auth and more)
+
+Every request sends `typedBridgeConfig.headers`. Set them once after login, or update a single header any time — the change applies to all subsequent calls:
+
+```ts
+// Set the full header set (e.g. right after sign-in)
+typedBridgeConfig.headers = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${token}`
+}
+
+// Or add / change one header on the fly
+typedBridgeConfig.headers['X-Tenant'] = 'acme'
+
+// Clear it on logout
+delete typedBridgeConfig.headers['Authorization']
+```
+
+These headers are exactly what your `createMiddleware` and `mcpGetContext` read on the server, so the same token drives auth across HTTP and AI surfaces. You can also tap every response with `typedBridgeConfig.onResponse`:
+
+```ts
+typedBridgeConfig.onResponse = res => {
+    if (res.status === 401) redirectToLogin()
+}
+```
+
 Full autocomplete, full type safety, from server to screen. Your frontend never imports Zod and never sees your backend code. It is one generated file you can drop into React, Vue, Angular, React Native, or anything else.
 
 ---
@@ -149,12 +198,13 @@ Point any MCP client at it:
     "mcpServers": {
         "my-backend": {
             "url": "http://localhost:8080/bridge/mcp",
-            "headers": { "Authorization": "Bearer ${MCP_API_KEY}" },
-            "env": { "MCP_API_KEY": "your-api-key" }
+            "headers": { "Authorization": "Bearer your-api-key" }
         }
     }
 }
 ```
+
+Typed Bridge is a **remote (HTTP) MCP server**, so the client just needs the `url` and any auth `headers` — those headers reach your `mcpGetContext`. (The `env` block you may have seen elsewhere is only for **stdio** servers the client launches as a local process; there is no subprocess here, so it does nothing.)
 
 ### Auth that actually works
 
@@ -173,71 +223,114 @@ createBridge(bridge, 8080, '/bridge', {
 
 The returned context lands in every handler as the second argument, exactly like middleware context. Same security model for humans and agents.
 
-### Choose what each surface can touch
+### Control how many tools the client sees
 
-MCP and LLM tools are independent surfaces. Every entry is exposed to both by default, and two flags let you hide a handler from either one while it stays fully callable over HTTP:
-
-- `mcp: false` keeps a handler off the MCP server.
-- `llm: false` keeps it out of `toLLMTools`, tool search, and the `/bridge/tools` endpoint.
+A `toolMode` option, set once on `createBridge`, decides how the server presents tools (defaults to `on_demand`):
 
 ```ts
-export const entries = {
-    'user.fetch': { handler: user.fetch, ...userTypes.fetch },
-    'user.remove': { handler: user.remove, ...userTypes.remove, mcp: false }, // your LLM app can call it, external MCP clients cannot
-    'admin.sync': { handler: admin.sync, ...adminTypes.sync, llm: false } // HTTP and MCP only, never an LLM tool
-}
+createBridge(bridge, 8080, '/bridge', { entries, mcp: true, toolMode: 'attach_all' })
 ```
 
-Hidden tools are dropped from discovery and rejected if called by name, so a model cannot reach them even by guessing.
+In `on_demand` (the default) the server lists just `tool_search`, `tool_describe`, and `tool_use`, and the client discovers the rest as it needs them — ideal for a large API behind a single MCP connection. In `attach_all` it lists every exposed entry as its own tool. Same two modes power direct LLM tool calling too — see [Superpower 3](#superpower-3-llm-tool-calling).
+
+`toolMode` controls **what's listed**, not what's reachable. It's a discovery strategy, not a sandbox: any entry visible to a surface stays callable (via `tool_use` or by its own name), so the two modes always execute identically. The hard boundary is the `mcp` / `llm` visibility flags — a hidden entry is never listed, discoverable, or callable.
+
+### Choose what each surface can touch
+
+MCP and LLM tools are independent surfaces. Every entry is exposed to both by default, and two flags — set right on the entry via `defineEntry` — hide a handler from either one while it stays fully callable over HTTP:
+
+- `mcp: false` keeps a handler off the MCP server.
+- `llm: false` keeps it out of `getTools` and tool search.
+
+```ts
+// Your LLM app can call it, external MCP clients cannot
+export const remove = defineEntry({
+    description: 'Remove a user',
+    args: z.object({ id: z.number().min(1) }),
+    res: z.object({ ok: z.boolean() }),
+    mcp: false,
+    handler: async (args, ctx: context.admin) => { ... }
+})
+
+// HTTP and MCP only, never an LLM tool
+export const sync = defineEntry({
+    description: 'Sync admin records',
+    args: z.object({}),
+    res: z.object({ synced: z.number() }),
+    llm: false,
+    handler: async (args, ctx: context.admin) => { ... }
+})
+```
+
+Each flag governs its surface in **both modes** — under `attach_all` and `on_demand` alike, a hidden entry is neither attached directly nor discoverable through `tool_search`, and it is rejected if called by name. A model cannot reach it even by guessing.
 
 ---
 
 ## Superpower 3: LLM tool calling
 
-Skip MCP and talk to models directly. Typed Bridge speaks OpenAI, Anthropic, and raw JSON Schema.
+Skip MCP and talk to models directly. Typed Bridge speaks OpenAI, Anthropic, and raw JSON Schema — and one option decides **how** your tools reach the model.
 
-### Hand every tool to the model
+### Two modes, set with `toolMode`
+
+- **`on_demand`** (default) — the model gets three meta-tools and discovers the rest as it needs them.
+- **`attach_all`** — every eligible entry is attached as its own tool.
+
+You choose per call, right where you build the tool list. No global state:
 
 ```ts
-import { toLLMTools } from 'typed-bridge'
+import { getTools, handleToolCall } from 'typed-bridge'
 
-const tools = toLLMTools(entries, { format: 'openai' })
-// Pass `tools` straight into openai.chat.completions.create()
+// Build the tool list (openai | anthropic | json-schema). Omit toolMode to use the default, on_demand.
+const tools = getTools(entries, { toolMode: 'on_demand', format: 'openai' })
+
+// Execute whatever the model called — same call for both modes
+const result = await handleToolCall(bridge, entries, toolCall, { context })
 ```
 
-Formats: `openai`, `anthropic`, `json-schema`.
+Because you pass `toolMode` explicitly, a single process can run one assistant with `attach_all` and another with `on_demand`. `handleToolCall` needs no mode at all — it dispatches on the tool name (a meta-tool name runs the discovery flow, anything else runs that entry directly), so your loop is written once and never changes when you switch modes.
 
-### Have a giant API? Use meta-tools.
+### `on_demand` — three tools, discovered as needed (default)
 
-For hundreds of endpoints, do not flood the context window. Give the model three tools instead of two hundred:
+Most APIs have more endpoints than a model should see at once, so this is the default. Do not flood the context window — give the model three tools instead of two hundred:
 
 ```ts
-import { getMetaTools, handleMetaToolCall } from 'typed-bridge'
+const tools = getTools(entries, { toolMode: 'on_demand', format: 'openai' })
+// → tool_search, tool_describe, tool_use
 
-const tools = getMetaTools({ format: 'openai' })
-
-// The model discovers tools, inspects their schema, then calls them:
+// The model discovers, inspects, then calls:
 // 1. tool_search({ query: "user" })       → [{ name: "user.fetch", description: "..." }, ...]
 // 2. tool_describe({ name: "user.fetch" }) → { name, description, args, response }
 // 3. tool_use({ name: "user.fetch", arguments: { id: 1 } }) → { id: 1, name: "Alice" }
-
-const result = await handleMetaToolCall(bridge, entries, {
-    name: 'tool_use',
-    arguments: { name: 'user.fetch', arguments: { id: 1 } }
-})
 ```
 
 The model calls `tool_search` to discover what exists (names and descriptions only), `tool_describe` to get the full schema for the tool it needs, then `tool_use` to run it. Your token bill stays flat as your API grows.
 
-### Or just hit the REST endpoint
+### `attach_all` — every tool, up front
 
+```ts
+const tools = getTools(entries, { toolMode: 'attach_all', format: 'openai' })
+// → one tool per entry: user.fetch, product.create, ...
+// Pass `tools` straight into openai.chat.completions.create()
 ```
-GET /bridge/tools?format=openai
-```
+
+Best when you have a handful of endpoints and want the model to see them all immediately.
+
+> Two functions cover every case: `getTools` to build the tool list and `handleToolCall` to run whatever the model picks — in either mode.
 
 ---
 
 ## Why Typed Bridge
+
+You could wire all of this by hand. Here is what you skip.
+
+### vs hand-rolled REST + Express
+
+|                     | **Typed Bridge**                          | **Hand-rolled REST**                          |
+| ------------------- | ----------------------------------------- | --------------------------------------------- |
+| Endpoints           | Plain functions, auto-routed              | Routes, controllers, and handlers wired by hand |
+| Request validation  | Built in with Zod, automatic              | Added and maintained per route                |
+| Client + types      | One generated file, always in sync        | Hand-written fetch calls and types, or none   |
+| AI tooling          | MCP and LLM tools included                 | Build the whole AI layer yourself             |
 
 ### vs writing AI tools by hand
 
@@ -257,6 +350,8 @@ GET /bridge/tools?format=openai
 | Frontend framework     | Any                                           | React first, adapters for others    |
 | AI tooling             | Built in (MCP and LLM)                         | Not included                        |
 
+tRPC has a deeper React/inference ecosystem and richer client features. Reach for Typed Bridge when you also want AI surfaces and a framework-agnostic, standalone client.
+
 ### vs GraphQL
 
 |                    | **Typed Bridge**                          | **GraphQL**                                  |
@@ -265,6 +360,8 @@ GET /bridge/tools?format=openai
 | Type safety        | Automatic from signatures                 | Requires a codegen toolchain                 |
 | Learning curve     | Minimal, plain TypeScript                 | SDL, resolvers, fragments, queries           |
 | AI tooling         | Built in                                  | Roll your own                                |
+
+GraphQL is unmatched when clients need to shape their own queries across a complex graph. Typed Bridge is the simpler choice when you want typed RPC plus native AI access, not a query language.
 
 ---
 
@@ -280,11 +377,71 @@ createMiddleware('user.*', async (req, res) => {
         res.status(401).send('Unauthorized')
         return { next: false }
     }
-    return { context: { userId: 1 } }
+    return { context: { id: 1 } } // shape matches `context.user` from bridge/context.ts
 })
 ```
 
-Broader patterns run first (`*`, then `user.*`, then `user.fetch`). Returned context is merged and passed to the handler.
+A middleware returns one of:
+
+- `{ context }` — merge these values into the context and continue.
+- `{ next: false }` — stop here. You must have sent a response (`res.status(...).send(...)`); the handler never runs.
+- nothing — continue with no context change.
+
+### Middlewares stack, broad to specific
+
+Every middleware whose pattern matches the route runs, ordered from least to most specific (a literal segment counts as more specific than `*`). Each one's context is merged on top of the previous, so the handler receives the combined result:
+
+```ts
+createMiddleware('*', async () => {
+    return { context: { requestedAt: Date.now() } } // runs first, for every route
+})
+
+createMiddleware('user.*', async (req, res) => {
+    const token = req.headers.authorization
+    if (!token?.startsWith('Bearer ')) {
+        res.status(401).send('Unauthorized')
+        return { next: false }
+    }
+    return { context: { userId: Number(token.split(' ')[1]) } }
+})
+
+createMiddleware('user.remove', async (req, res) => {
+    if (req.headers['x-admin'] !== 'true') {
+        res.status(403).send('Admin access required')
+        return { next: false }
+    }
+    return { context: { isAdmin: true } }
+})
+```
+
+A call to `user.remove` runs all three in order — `*` → `user.*` → `user.remove` — and the handler's `ctx` is the merged `{ requestedAt, userId, isAdmin }`. A call to `user.fetch` runs only the first two and gets `{ requestedAt, userId }`. If any middleware returns `{ next: false }`, the chain stops immediately and the rest never run.
+
+### Reusing logic across middlewares
+
+The pattern stacking above is automatic. When you instead want one middleware to *build on* another's logic, extract a plain function and call it — full control over order and short-circuiting:
+
+```ts
+const auth = async (req: Request, res: Response) => {
+    const user = verifyToken(req.headers['x-auth-token'] || '')
+    if (!user) {
+        res.status(401).send('Unauthorized')
+        return { next: false as const }
+    }
+    return { next: true as const, context: user }
+}
+
+createMiddleware('admin.*', async (req, res) => {
+    const authRes = await auth(req, res)
+    if (authRes.next === false) return authRes // 401 already sent
+
+    if (!authRes.context.role.includes('admin')) {
+        res.status(403).send('Forbidden')
+        return { next: false }
+    }
+
+    return authRes // passes the authenticated user through as context
+})
+```
 
 ---
 
@@ -296,34 +453,52 @@ import { tbConfig } from 'typed-bridge'
 tbConfig.logs.request = true
 tbConfig.logs.response = true
 tbConfig.logs.error = true
+tbConfig.logs.argsOnError = true // Include handler args in error logs
+tbConfig.logs.contextOnError = true // Include resolved context in error logs
 tbConfig.responseDelay = 0 // Artificial delay in ms for testing loading states
-tbConfig.maxToolOutputChars = 0 // Cap MCP/LLM tool results (chars of JSON); 0 = unlimited
+tbConfig.maxToolOutputChars = 100_000 // Cap MCP/LLM tool results (chars of JSON); default 100_000, set 0 to disable
 ```
+
+> Tool exposure (`attach_all` vs `on_demand`) is **not** global — you pass `toolMode` explicitly to `getTools` for your own loop, and to `createBridge` for the MCP server.
 
 `createBridge` also returns the underlying Express `app` and `server`, so you can add routes, serve static files, or attach any Express middleware.
 
 ### Guarding tool output size
 
-The same function can serve a data-heavy response over HTTP and as an AI tool. A frontend handles a large payload fine, but feeding it to a model wastes tokens or overflows the context window. Set `tbConfig.maxToolOutputChars` to cap the serialized result on the **MCP and LLM tool surfaces only** (HTTP is never limited). Oversized results are **rejected, not truncated** — the caller gets an error telling it to narrow the query, so the model never receives invalid JSON:
+The same function can serve a data-heavy response over HTTP and as an AI tool. A frontend handles a large payload fine, but feeding it to a model wastes tokens or overflows the context window. So by default Typed Bridge caps tool results at **100,000 characters** on the **MCP and LLM tool surfaces only** (HTTP is never limited). Oversized results are **rejected, not truncated** — the caller gets an error telling it to narrow the query, so the model never receives invalid JSON:
 
 ```ts
-tbConfig.maxToolOutputChars = 100_000
-
-// A tool returning more than that responds with:
+// A tool result over the cap responds with:
 // "Result too large (182431 chars, limit 100000). Narrow the query with filters or pagination."
+
+tbConfig.maxToolOutputChars = 250_000 // raise it
+tbConfig.maxToolOutputChars = 0       // or disable the cap entirely
 ```
 
 ---
 
 ## Adding a new route
 
-1. Create the handler in `bridge/<module>/index.ts`.
-2. Add its Zod schema in `<module>/types.ts`.
-3. Register it in `bridge/index.ts`:
-    - Flat map for a plain typed API: `export default { 'module.action': module.action }`
-    - Entry based for AI features: `export const entries = { 'module.action': { handler: module.action, ...moduleTypes.action } }` then `export default defineBridge(entries)`
-4. Add middleware if needed and import it in your server entry.
-5. Regenerate the client.
+1. Define the entry with `defineEntry` in `bridge/<module>/index.ts` (description, args, res, handler, plus any `mcp`/`llm` flags).
+2. Register it in `bridge/index.ts` with a direct mapping: `export const entries = { 'module.action': module.action }` then `export default defineBridge(entries)`.
+3. Add middleware if needed and import it in your server entry.
+4. Regenerate the client.
+
+---
+
+## Upgrading from v3
+
+v4 unifies the LLM and MCP tool paths behind two functions and a single `toolMode` option. The MCP server itself is unchanged — `mcp: true` still mounts `/bridge/mcp` — but `toolMode` now defaults to `on_demand`.
+
+| v3                                                  | v4                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------ |
+| `toolsFormat` option / `GET /bridge/tools` endpoint | Build the list in code: `getTools(entries, { toolMode, format })` |
+| `toLLMTools(entries, { format })`                   | `getTools(entries, { toolMode: 'attach_all', format })`      |
+| `getMetaTools({ format })`                          | `getTools(entries, { toolMode: 'on_demand', format })`       |
+| `handleMetaToolCall(...)` / direct `toolUse(...)`   | `handleToolCall(bridge, entries, toolCall, { context, surface })` |
+| `{ handler, ...types.fetch }` + separate `types.ts` | One `defineEntry({ ... })` object, mapped 1:1 in `entries`   |
+
+`handleToolCall` is mode-agnostic: it dispatches on the tool name, so the same loop runs whether you chose `attach_all` or `on_demand`.
 
 ---
 

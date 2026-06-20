@@ -4,7 +4,7 @@ import { Application, Request, Response } from 'express'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { Bridge, BridgeEntries, enforceToolOutputLimit, toToolInputSchema } from '../tools'
+import { Bridge, BridgeEntries, getMetaTools, handleToolCall, isEntryVisible, toToolInputSchema, ToolMode } from '../tools'
 
 export type MCPGetContext = (headers: IncomingHttpHeaders) => Record<string, unknown> | Promise<Record<string, unknown>>
 
@@ -21,20 +21,28 @@ const SESSION_TTL_MS = 30 * 60 * 1000
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000
 const MAX_SESSIONS = 1000
 
+// The 3 meta-tools, shaped for MCP's { name, description, inputSchema } listing.
+const metaToolsForMCP = () =>
+    (getMetaTools({ format: 'json-schema' }) as { name: string; description: string; parameters: unknown }[]).map(
+        tool => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters })
+    )
+
 function createMCPServer(
     bridge: Bridge,
     entries: BridgeEntries,
     headersRef: HeadersRef,
-    getContext?: MCPGetContext
+    getContext?: MCPGetContext,
+    toolMode: ToolMode = 'on_demand'
 ): Server {
     const server = new Server({ name: 'typed-bridge', version: '1.0.0' }, { capabilities: { tools: {} } })
 
-    // An entry is exposed to MCP unless it explicitly opts out with `mcp: false`
-    const isExposed = (entry?: BridgeEntries[string]) => !!entry && entry.mcp !== false
-
     server.setRequestHandler(ListToolsRequestSchema, async () => {
+        // on_demand: hand the model the 3 meta-tools and let it discover the rest
+        if (toolMode === 'on_demand') return { tools: metaToolsForMCP() }
+
+        // attach_all: one tool per entry visible to MCP (respects `mcp: false`)
         const tools = Object.entries(entries)
-            .filter(([, entry]) => isExposed(entry))
+            .filter(([, entry]) => isEntryVisible(entry, 'mcp'))
             .map(([name, entry]) => ({
                 name,
                 description: entry.description,
@@ -48,20 +56,19 @@ function createMCPServer(
         const { name, arguments: args } = request.params
 
         try {
-            // Block execution of hidden tools, not just their listing
-            if (!isExposed(entries[name])) throw new Error(`Tool not found: ${name}`)
-
-            const handler = bridge[name]
-            if (!handler) throw new Error(`Tool not found: ${name}`)
-
             // Derive per-request context from forwarded headers
             const context = getContext ? await getContext(headersRef.current) : undefined
-            const result = await handler(args || {}, context)
 
-            // Throws if the result exceeds tbConfig.maxToolOutputChars — handled below as isError
-            const text = enforceToolOutputLimit(result)
+            // Mode-agnostic dispatch: meta-tool names run discovery, anything else runs the
+            // entry directly. Visibility (`mcp: false`) and the output limit are enforced inside.
+            const result = await handleToolCall(
+                bridge,
+                entries,
+                { name, arguments: (args as Record<string, unknown>) || {} },
+                { context, surface: 'mcp' }
+            )
 
-            return { content: [{ type: 'text' as const, text }] }
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result) ?? '' }] }
         } catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error)
             return { content: [{ type: 'text' as const, text: message }], isError: true }
@@ -76,7 +83,8 @@ export function mountMCP(
     bridge: Bridge,
     entries: BridgeEntries,
     path: string = '/mcp',
-    getContext?: MCPGetContext
+    getContext?: MCPGetContext,
+    toolMode: ToolMode = 'on_demand'
 ) {
     const sessions = new Map<string, Session>()
 
@@ -104,7 +112,7 @@ export function mountMCP(
             transport = session.transport
         } else if (!sessionId && req.method === 'POST') {
             const headersRef: HeadersRef = { current: req.headers }
-            const server = createMCPServer(bridge, entries, headersRef, getContext)
+            const server = createMCPServer(bridge, entries, headersRef, getContext, toolMode)
 
             transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),

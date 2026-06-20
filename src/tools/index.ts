@@ -29,9 +29,42 @@ export function isLLMToolFormat(value: string): value is LLMToolFormat {
     return (LLM_TOOL_FORMATS as readonly string[]).includes(value)
 }
 
+// How tools are presented to an AI surface:
+//  - 'attach_all'  → every eligible entry is attached as its own tool
+//  - 'on_demand'   → the model gets the 3 meta-tools and discovers the rest
+export const TOOL_MODES = ['attach_all', 'on_demand'] as const
+
+export type ToolMode = (typeof TOOL_MODES)[number]
+
+export function isToolMode(value: string): value is ToolMode {
+    return (TOOL_MODES as readonly string[]).includes(value)
+}
+
+// Which visibility flag governs a given surface
+export type ToolSurface = 'llm' | 'mcp'
+
+// An entry is exposed to a surface unless it explicitly opts out via its flag.
+export function isEntryVisible(entry: BridgeEntry | undefined, surface: ToolSurface): boolean {
+    if (!entry) return false
+    return surface === 'mcp' ? entry.mcp !== false : entry.llm !== false
+}
+
 export interface ToLLMToolsOptions {
     format?: LLMToolFormat
     includeResponse?: boolean
+    surface?: ToolSurface
+}
+
+export interface GetToolsOptions {
+    toolMode?: ToolMode
+    format?: LLMToolFormat
+    surface?: ToolSurface
+    includeResponse?: boolean
+}
+
+export interface HandleToolCallOptions {
+    context?: unknown
+    surface?: ToolSurface
 }
 
 export interface ToolCall {
@@ -43,6 +76,11 @@ export function defineBridge<T extends BridgeEntries>(entries: T): ExtractHandle
     const bridge: any = {}
 
     for (const [key, entry] of Object.entries(entries)) {
+        // Reserved: these names drive the on_demand discovery flow. An entry using one
+        // would be shadowed by the meta-tool in handleToolCall and never reachable by name.
+        if (isMetaToolName(key))
+            throw new Error(`Entry name "${key}" is reserved for a meta-tool — rename the entry.`)
+
         bridge[key] = async (...handlerArgs: any[]) => {
             if (entry.args) handlerArgs[0] = entry.args.parse(handlerArgs[0])
             return entry.handler(...handlerArgs)
@@ -50,6 +88,48 @@ export function defineBridge<T extends BridgeEntries>(entries: T): ExtractHandle
     }
 
     return bridge
+}
+
+/**
+ * Bundle an entry's schema and handler into a single, self-contained object.
+ * Purely a typing helper — it returns its input unchanged at runtime — but it
+ * infers the handler's argument type from `args` and checks the return against
+ * `res`, so you never write `z.infer<typeof ...>`. `context` stays `any` so you
+ * can annotate it with your own named context type inline.
+ */
+export function defineEntry<A extends z.ZodType, R extends z.ZodType>(entry: {
+    description?: string
+    args: A
+    res: R
+    mcp?: boolean
+    llm?: boolean
+    handler: (args: z.infer<A>, context: any) => Promise<z.infer<R>>
+}): {
+    description?: string
+    args: A
+    res: R
+    mcp?: boolean
+    llm?: boolean
+    handler: (args: z.infer<A>, context: any) => Promise<z.infer<R>>
+}
+export function defineEntry<R extends z.ZodType>(entry: {
+    description?: string
+    res: R
+    mcp?: boolean
+    llm?: boolean
+    handler: (args: undefined, context: any) => Promise<z.infer<R>>
+}): {
+    description?: string
+    res: R
+    mcp?: boolean
+    llm?: boolean
+    handler: (args: undefined, context: any) => Promise<z.infer<R>>
+}
+// `any` is required here: an overload implementation signature must be `any`, and the
+// handler's `context: any` is what lets callers annotate it inline (e.g. `_ctx: context.user`) —
+// a narrower declared type like `unknown` would reject that annotation.
+export function defineEntry(entry: any): any {
+    return entry
 }
 
 const NO_ARGS_SCHEMA = { type: 'object' as const, properties: {}, additionalProperties: false as const }
@@ -83,6 +163,7 @@ export function schemaToJSONSchema(schema: z.ZodType) {
 export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) {
     const format = options?.format || 'openai'
     const includeResponse = options?.includeResponse || false
+    const surface = options?.surface || 'llm'
 
     // Guard against invalid formats slipping in via casts (e.g. from query params)
     if (!isLLMToolFormat(format)) throw new Error(`Invalid LLM tool format: ${format}. Expected one of ${LLM_TOOL_FORMATS.join(', ')}`)
@@ -90,7 +171,7 @@ export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) 
     const tools: unknown[] = []
 
     for (const [name, entry] of Object.entries(entries)) {
-        if (entry.llm === false) continue
+        if (!isEntryVisible(entry, surface)) continue
 
         const description = entry.description
         const parameters = toToolInputSchema(entry.args)
@@ -199,12 +280,12 @@ export function getMetaTools(options?: { format?: LLMToolFormat }) {
     }
 }
 
-export function toolSearch(entries: BridgeEntries, query?: string) {
+export function toolSearch(entries: BridgeEntries, query?: string, surface: ToolSurface = 'llm') {
     const results: { name: string; description?: string }[] = []
     const q = query?.toLowerCase()
 
     for (const [name, entry] of Object.entries(entries)) {
-        if (entry.llm === false) continue
+        if (!isEntryVisible(entry, surface)) continue
 
         if (q) {
             const haystack = `${name} ${entry.description || ''}`.toLowerCase()
@@ -217,9 +298,9 @@ export function toolSearch(entries: BridgeEntries, query?: string) {
     return results
 }
 
-export function toolDescribe(entries: BridgeEntries, name: string) {
+export function toolDescribe(entries: BridgeEntries, name: string, surface: ToolSurface = 'llm') {
     const entry = entries[name]
-    if (!entry || entry.llm === false) throw new Error(`Tool not found: ${name}`)
+    if (!entry || !isEntryVisible(entry, surface)) throw new Error(`Tool not found: ${name}`)
 
     return {
         name,
@@ -232,7 +313,7 @@ export function toolDescribe(entries: BridgeEntries, name: string) {
 /**
  * Serialize a tool result and enforce `tbConfig.maxToolOutputChars`. Oversized results
  * throw (instead of truncating to invalid JSON) so the model is prompted to narrow its
- * query. Returns the serialized JSON so callers can reuse it without re-stringifying.
+ * query. Returns the serialized JSON (callers may discard it; it's used only to measure).
  */
 export function enforceToolOutputLimit(result: unknown): string {
     const serialized = JSON.stringify(result) ?? ''
@@ -247,6 +328,9 @@ export function enforceToolOutputLimit(result: unknown): string {
     return serialized
 }
 
+// The single execution boundary: runs the handler and enforces tbConfig.maxToolOutputChars
+// on its result. Every path that actually executes an entry (tool_use, direct call) goes
+// through here, so output is capped exactly once. Discovery (search/describe) never does.
 export async function toolUse(bridge: Bridge, name: string, args: unknown, context?: unknown) {
     const handler = bridge[name]
     if (!handler) throw new Error(`Tool not found: ${name}`)
@@ -261,20 +345,20 @@ export async function handleMetaToolCall(
     bridge: Bridge,
     entries: BridgeEntries,
     toolCall: ToolCall,
-    context?: unknown
+    context?: unknown,
+    surface: ToolSurface = 'llm'
 ): Promise<unknown> {
     switch (toolCall.name) {
         case 'tool_search':
-            return toolSearch(entries, toolCall.arguments?.query as string | undefined)
+            return toolSearch(entries, toolCall.arguments?.query as string | undefined, surface)
 
         case 'tool_describe':
-            return toolDescribe(entries, toolCall.arguments?.name as string)
+            return toolDescribe(entries, toolCall.arguments?.name as string, surface)
 
         case 'tool_use': {
             const args = toolCall.arguments as { name: string; arguments?: Record<string, unknown> }
 
-            const entry = entries[args.name]
-            if (!entry || entry.llm === false) throw new Error(`Tool not found: ${args.name}`)
+            if (!isEntryVisible(entries[args.name], surface)) throw new Error(`Tool not found: ${args.name}`)
 
             return toolUse(bridge, args.name, args.arguments || {}, context)
         }
@@ -284,4 +368,58 @@ export async function handleMetaToolCall(
                 `Unknown meta-tool: ${toolCall.name}. Expected "tool_search", "tool_describe", or "tool_use".`
             )
     }
+}
+
+// The three meta-tool names are reserved; a tool call by any of these runs the
+// discovery flow, anything else is treated as a direct entry call.
+export const META_TOOL_NAMES = ['tool_search', 'tool_describe', 'tool_use'] as const
+
+export function isMetaToolName(name: string): boolean {
+    return (META_TOOL_NAMES as readonly string[]).includes(name)
+}
+
+/**
+ * Build the tool list for a model, honoring the chosen mode:
+ *  - 'attach_all'  → one tool per visible entry (current `toLLMTools` behavior)
+ *  - 'on_demand'   → the 3 meta-tools (`tool_search`, `tool_describe`, `tool_use`)
+ */
+export function getTools(entries: BridgeEntries, options?: GetToolsOptions) {
+    const toolMode = options?.toolMode || 'on_demand'
+    const format = options?.format || 'openai'
+
+    if (toolMode === 'on_demand') return getMetaTools({ format })
+
+    return toLLMTools(entries, {
+        format,
+        surface: options?.surface || 'llm',
+        includeResponse: options?.includeResponse
+    })
+}
+
+/**
+ * Execute whatever the model called, in either mode. Dispatches on the tool name:
+ * a meta-tool name runs the discovery flow, anything else runs that entry directly.
+ * Identical handler execution, validation, and output-limit enforcement either way.
+ */
+export async function handleToolCall(
+    bridge: Bridge,
+    entries: BridgeEntries,
+    toolCall: ToolCall,
+    options?: HandleToolCallOptions
+): Promise<unknown> {
+    const surface = options?.surface || 'llm'
+    const context = options?.context
+
+    if (isMetaToolName(toolCall.name)) {
+        return handleMetaToolCall(bridge, entries, toolCall, context, surface)
+    }
+
+    // Direct entry call (attach_all mode): respect per-surface visibility.
+    if (!isEntryVisible(entries[toolCall.name], surface)) throw new Error(`Tool not found: ${toolCall.name}`)
+
+    // `toolUse` enforces tbConfig.maxToolOutputChars on the executed result — the only
+    // place output is unbounded. Discovery results (tool_search / tool_describe) are
+    // deliberately left uncapped so a blanket search can never deadlock the model's
+    // own recovery path.
+    return toolUse(bridge, toolCall.name, toolCall.arguments || {}, context)
 }

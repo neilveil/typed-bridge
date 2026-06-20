@@ -19,8 +19,8 @@ type TypedBridge = {
     }>;
     'user.update': (args: {
         id: number;
-        name?: string;
-        email?: string;
+        name?: string | undefined;
+        email?: string | undefined;
     }) => Promise<{
         id: number;
         name: string;
@@ -32,7 +32,7 @@ type TypedBridge = {
     }) => Promise<{
         success: boolean;
     }>;
-    'user.fetchAll': () => Promise<{
+    'user.fetchAll': (args?: undefined) => Promise<{
         id: number;
         name: string;
         email: string;
@@ -55,7 +55,7 @@ type TypedBridge = {
         price: number;
         createdAt: Date;
     }>;
-    'product.list': () => Promise<{
+    'product.list': (args?: undefined) => Promise<{
         id: number;
         name: string;
         price: number;
@@ -67,8 +67,8 @@ type TypedBridge = {
             productId: number;
             quantity: number;
             price: number;
-            notes?: string;
             discount: number | null;
+            notes?: string | undefined;
         }[];
         shippingAddress: {
             street: string;
@@ -84,10 +84,10 @@ type TypedBridge = {
             zip: string;
             country: string;
         } | null;
-        couponCode?: string | null;
-        scheduledDate?: Date;
         isGift: boolean;
         giftMessage: string | null;
+        couponCode?: string | null | undefined;
+        scheduledDate?: Date | undefined;
     }) => Promise<{
         id: number;
         status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
@@ -96,8 +96,8 @@ type TypedBridge = {
             productId: number;
             quantity: number;
             price: number;
-            notes?: string;
             discount: number | null;
+            notes?: string | undefined;
         }[];
         createdAt: Date;
     }>;
@@ -112,8 +112,8 @@ type TypedBridge = {
             productId: number;
             quantity: number;
             price: number;
-            notes?: string;
             discount: number | null;
+            notes?: string | undefined;
         }[];
         shippingAddress: {
             street: string;
@@ -136,21 +136,21 @@ type TypedBridge = {
     }>;
     'order.update': (args: {
         id: number;
-        status?: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
+        status?: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled" | undefined;
         shippingAddress?: {
             street: string;
             city: string;
             state: string;
             zip: string;
             country: string;
-        };
-        giftMessage?: string | null;
+        } | undefined;
+        giftMessage?: string | null | undefined;
     }) => Promise<{
         id: number;
         status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
         updatedAt: Date;
     }>;
-    'order.list': () => Promise<{
+    'order.list': (args?: undefined) => Promise<{
         id: number;
         customerId: number;
         status: "pending" | "confirmed" | "shipped" | "delivered" | "cancelled";
@@ -159,8 +159,8 @@ type TypedBridge = {
             productId: number;
             quantity: number;
             price: number;
-            notes?: string;
             discount: number | null;
+            notes?: string | undefined;
         }[];
         shippingAddress: {
             street: string;
@@ -222,22 +222,22 @@ type TypedBridge = {
         undef: undefined;
         unk: unknown;
         whatever: any;
-        optStr?: string;
         nullStr: string | null;
         defStr: string;
-        optNullStr?: string | null;
-        nullOptStr: (string | undefined) | null;
         tags: string[];
         scores: number[] | null;
-        optDates?: Date[];
         nested: {
             a: number;
-            b?: string;
             c: {
                 d: boolean;
                 e: string[] | null;
             };
+            b?: string | undefined;
         };
+        optStr?: string | undefined;
+        optNullStr?: string | null | undefined;
+        nullOptStr?: string | null | undefined;
+        optDates?: Date[] | undefined;
     }>;
 };
 

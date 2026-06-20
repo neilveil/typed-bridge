@@ -1,6 +1,6 @@
 import OpenAI from 'openai'
 import { Application, Request, Response } from 'express'
-import { Bridge, BridgeEntries, getMetaTools, handleMetaToolCall } from '../tools'
+import { Bridge, BridgeEntries, getTools, handleToolCall } from '../tools'
 
 const SYSTEM_PROMPT = `You are a helpful assistant with access to a backend API via tools.
 
@@ -14,7 +14,8 @@ When the user asks something, search for relevant tools, describe the one you ne
 Present results in a clear, readable format. Use markdown tables for lists of items.`
 
 export function mountChat(app: Application, bridge: Bridge, entries: BridgeEntries) {
-    const metaTools = getMetaTools({ format: 'openai' }) as OpenAI.Chat.ChatCompletionTool[]
+    // 'on_demand' hands the model the 3 meta-tools; flip to 'attach_all' to attach every tool.
+    const tools = getTools(entries, { toolMode: 'on_demand', format: 'openai' }) as OpenAI.Chat.ChatCompletionTool[]
 
     // Lazy-init so the server can start without OPENAI_API_KEY
     let openai: OpenAI
@@ -49,7 +50,7 @@ export function mountChat(app: Application, bridge: Bridge, entries: BridgeEntri
                 const stream = await openai.chat.completions.create({
                     model: 'gpt-4o-mini',
                     messages,
-                    tools: metaTools,
+                    tools,
                     tool_choice: 'auto',
                     stream: true
                 })
@@ -111,7 +112,7 @@ export function mountChat(app: Application, bridge: Bridge, entries: BridgeEntri
 
                     let result: unknown
                     try {
-                        result = await handleMetaToolCall(bridge, entries, toolCall, authContext)
+                        result = await handleToolCall(bridge, entries, toolCall, { context: authContext })
                     } catch (error: unknown) {
                         result = { error: error instanceof Error ? error.message : String(error) }
                     }
