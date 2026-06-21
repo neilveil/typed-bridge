@@ -223,7 +223,7 @@ createMiddleware('user.*', async (req, res) => {
 createBridge(bridge, 8080, '/bridge', { entries, mcp: true })
 ```
 
-The resolved context lands in every handler as the second argument, identically for a browser request and an agent's tool call — one security model for humans and AI. When a middleware blocks a tool call, the model receives the **status and message as JSON** (e.g. `{ "status": 401, "error": "Unauthorized" }`) so it knows *why* it was denied. On tool surfaces a middleware sees the request **headers** and the matched entry name as **`req.path`** (so path-based key derivation like `req.path.split('/').pop()` works everywhere) — but no request **body**, since MCP can forward nothing else.
+The resolved context lands in every handler as the second argument, identically for a browser request and an agent's tool call — one security model for humans and AI. When a middleware blocks a tool call, the model receives the **message as JSON** (e.g. `{ "error": "Unauthorized" }`) so it knows *why* it was denied. On tool surfaces a middleware sees the request **headers** and the matched entry name as **`req.path`** (so path-based key derivation like `req.path.split('/').pop()` works everywhere) — but no request **body**, since MCP can forward nothing else.
 
 ### Control how many tools the client sees
 
@@ -292,7 +292,7 @@ const result = await handleToolCall(bridge, entries, toolCall, { headers: req.he
 
 Because you pass `toolMode` explicitly, a single process can run one assistant with `attach_all` and another with `on_demand`. `handleToolCall` needs no mode at all — it dispatches on the tool name (a meta-tool name runs the discovery flow, anything else runs that entry directly), so your loop is written once and never changes when you switch modes.
 
-Your `createMiddleware` chain runs on these tool calls just like it does on HTTP and MCP. Unlike MCP — where the server already holds the client's headers — an LLM loop is your own code, so you pass the request `headers` into `handleToolCall` to drive the chain. The middleware-derived context is merged on top of any `context` you also pass. If a needed header is missing, the matching middleware denies the call (the model receives a JSON `{ status, error }`), exactly as it would over HTTP.
+Your `createMiddleware` chain runs on these tool calls just like it does on HTTP and MCP. Unlike MCP — where the server already holds the client's headers — an LLM loop is your own code, so you pass the request `headers` into `handleToolCall` to drive the chain. The middleware-derived context is merged on top of any `context` you also pass. If a needed header is missing, the matching middleware denies the call (the model receives a JSON `{ error }`), exactly as it would over HTTP.
 
 ### `on_demand` — three tools, discovered as needed (default)
 
@@ -372,7 +372,7 @@ GraphQL is unmatched when clients need to shape their own queries across a compl
 
 ## Middleware when you need it
 
-Pattern based middleware runs before handlers and can inject context. The **same chain runs on all three surfaces** — HTTP requests, MCP tool calls, and LLM tool calls — matched by entry name (e.g. `user.fetch` matches `user.*`). Over HTTP a middleware blocks by writing to `res`; on tool calls that same `res.status(code).send(msg)` is reported back to the model as JSON (`{ status, error }`). On tool surfaces a middleware sees `req.headers` and `req.path` (the matched entry name) but **no `req.body`** and no real `res` for side effects (cookies, custom headers are no-ops), so write auth/context logic against `req.headers` / `req.path`:
+Pattern based middleware runs before handlers and can inject context. The **same chain runs on all three surfaces** — HTTP requests, MCP tool calls, and LLM tool calls — matched by entry name (e.g. `user.fetch` matches `user.*`). Over HTTP a middleware blocks by writing to `res`; on tool calls that same `res.status(code).send(msg)` is reported back to the model as JSON (`{ error }`) — the message reaches the model, the status code (irrelevant off HTTP) is dropped. On tool surfaces a middleware sees `req.headers` and `req.path` (the matched entry name) but **no `req.body`** and no real `res` for side effects (cookies, custom headers are no-ops), so write auth/context logic against `req.headers` / `req.path`:
 
 ```ts
 import { createMiddleware } from 'typed-bridge'

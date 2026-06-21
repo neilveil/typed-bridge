@@ -1,7 +1,6 @@
 import { IncomingHttpHeaders } from 'node:http'
 import { Request, Response } from 'express'
 import { getPatternSpecificity, matchesPattern } from '../helpers'
-import { HttpError } from '../httpError'
 
 export type Middleware = {
     pattern: string
@@ -42,20 +41,18 @@ export const runMiddlewares = async (
 
 // A stand-in for the Express response on tool surfaces (MCP / LLM), which have no real
 // HTTP response. A middleware that blocks with `res.status(code).send(msg)` (or `.json`)
-// throws an HttpError carrying that status + message — so the surface can report *why*
-// access was denied as structured JSON, instead of a meaningless silent stop.
+// throws a plain Error carrying that message — so the surface can report *why* access was
+// denied (the message) back to the model, instead of a meaningless silent stop. The status
+// code is irrelevant off HTTP, so it's ignored.
 const createToolRes = (): Response => {
-    const block = (status: number) => ({
-        send: (body: unknown) => {
-            throw new HttpError(status, typeof body === 'string' ? body : JSON.stringify(body))
-        },
-        json: (body: unknown) => {
-            throw new HttpError(status, typeof body === 'string' ? body : JSON.stringify(body))
-        }
-    })
+    const fail = (body: unknown) => {
+        throw new Error(typeof body === 'string' ? body : JSON.stringify(body))
+    }
 
     const res: any = {
-        status: (code: number) => block(code),
+        status: () => res,
+        send: fail,
+        json: fail,
         setHeader: () => res,
         set: () => res
     }
@@ -68,7 +65,7 @@ const createToolRes = (): Response => {
 // (e.g. `req.path.split('/').pop()`) work identically to HTTP. There is no request body:
 // MCP can forward nothing else, so middlewares must rely on headers/path alone.
 // Blocking via `res.status().send()` throws (caught by the caller and returned as JSON);
-// a bare `{ next: false }` with no response throws a generic 403 so access is still denied.
+// a bare `{ next: false }` with no response throws a generic error so access is still denied.
 export const runMiddlewaresForTool = async (
     name: string,
     headers?: IncomingHttpHeaders
@@ -80,7 +77,7 @@ export const runMiddlewaresForTool = async (
 
     const { blocked, context } = await runMiddlewares(name, req, res)
 
-    if (blocked) throw new HttpError(403, 'Access denied')
+    if (blocked) throw new Error('Access denied')
 
     return context
 }

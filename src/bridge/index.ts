@@ -177,11 +177,6 @@ const bridgeHandler =
                 return res.status(400).send(errorMessage)
             }
 
-            // Errors carrying an explicit HTTP status (e.g. HttpError for auth/permission
-            // failures) are expected, so respond with that status without logging as an error.
-            if (typeof error?.status === 'number')
-                return res.status(error.status).json({ error: error.message })
-
             if (tbConfig.logs.error) console.error(`ERROR | ${id} ::`, error)
 
             return res.status(500).json({ error: error.message })

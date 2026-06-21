@@ -65,13 +65,11 @@ function createMCPServer(
             )
 
             return { content: [{ type: 'text' as const, text: JSON.stringify(result) ?? '' }] }
-        } catch (error: any) {
-            // Surface the status + message as JSON so the model knows *why* a call was denied
-            // (e.g. a 401 from an auth middleware) instead of seeing an opaque stop.
+        } catch (error: unknown) {
+            // Surface the error message as JSON so the model knows *why* a call was denied
+            // (e.g. an auth middleware's message) instead of seeing an opaque stop.
             const message = error instanceof Error ? error.message : String(error)
-            const status = typeof error?.status === 'number' ? error.status : undefined
-            const payload = status ? { status, error: message } : { error: message }
-            return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }], isError: true }
+            return { content: [{ type: 'text' as const, text: JSON.stringify({ error: message }) }], isError: true }
         }
     })
 

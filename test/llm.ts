@@ -236,7 +236,7 @@ IMPORTANT: When calling tool_use for user.fetch, use id=0 (zero) exactly. Do not
             .map(m => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)).toLowerCase())
 
         assert(
-            toolResults.some(c => c.includes('unauthor') || c.includes('401')),
+            toolResults.some(c => c.includes('unauthor')),
             `Expected an auth-denied tool result, got: ${JSON.stringify(toolResults).slice(0, 300)}`
         )
     })
