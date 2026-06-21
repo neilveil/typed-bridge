@@ -36,8 +36,6 @@ export function mountChat(app: Application, bridge: Bridge, entries: BridgeEntri
         res.setHeader('Connection', 'keep-alive')
         res.flushHeaders()
 
-        const authContext = { requestedAt: Date.now(), userId: 1 }
-
         const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
             { role: 'system', content: SYSTEM_PROMPT },
             ...clientMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
@@ -112,9 +110,13 @@ export function mountChat(app: Application, bridge: Bridge, entries: BridgeEntri
 
                     let result: unknown
                     try {
-                        result = await handleToolCall(bridge, entries, toolCall, { context: authContext })
-                    } catch (error: unknown) {
-                        result = { error: error instanceof Error ? error.message : String(error) }
+                        // Forward the incoming request headers so the same middleware chain that
+                        // guards HTTP (auth, context injection) also applies to LLM tool calls.
+                        result = await handleToolCall(bridge, entries, toolCall, { headers: req.headers })
+                    } catch (error: any) {
+                        const message = error instanceof Error ? error.message : String(error)
+                        const status = typeof error?.status === 'number' ? error.status : undefined
+                        result = status ? { status, error: message } : { error: message }
                     }
 
                     messages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) })

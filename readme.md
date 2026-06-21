@@ -171,7 +171,7 @@ typedBridgeConfig.headers['X-Tenant'] = 'acme'
 delete typedBridgeConfig.headers['Authorization']
 ```
 
-These headers are exactly what your `createMiddleware` and `mcpGetContext` read on the server, so the same token drives auth across HTTP and AI surfaces. You can also tap every response with `typedBridgeConfig.onResponse`:
+These headers are exactly what your `createMiddleware` chain reads on the server — and that same chain runs on HTTP, MCP, and LLM tool calls — so one token drives auth across every surface. You can also tap every response with `typedBridgeConfig.onResponse`:
 
 ```ts
 typedBridgeConfig.onResponse = res => {
@@ -204,24 +204,26 @@ Point any MCP client at it:
 }
 ```
 
-Typed Bridge is a **remote (HTTP) MCP server**, so the client just needs the `url` and any auth `headers` — those headers reach your `mcpGetContext`. (The `env` block you may have seen elsewhere is only for **stdio** servers the client launches as a local process; there is no subprocess here, so it does nothing.)
+Typed Bridge is a **remote (HTTP) MCP server**, so the client just needs the `url` and any auth `headers` — those headers flow straight into your middleware chain. (The `env` block you may have seen elsewhere is only for **stdio** servers the client launches as a local process; there is no subprocess here, so it does nothing.)
 
 ### Auth that actually works
 
-MCP requests skip your normal middleware, so you derive context straight from headers:
+Your `createMiddleware` chain runs on MCP tool calls automatically — the client's forwarded headers are fed through the exact same pattern-matched middleware that guards HTTP. No separate config, no duplicated logic:
 
 ```ts
-createBridge(bridge, 8080, '/bridge', {
-    entries,
-    mcp: true,
-    mcpGetContext: async headers => {
-        const user = await verifyToken(headers['authorization'])
-        return { userId: user.id, role: user.role }
+createMiddleware('user.*', async (req, res) => {
+    const user = await verifyToken(req.headers['authorization'])
+    if (!user) {
+        res.status(401).json({ error: 'Unauthorized' })
+        return { next: false }
     }
+    return { context: { userId: user.id, role: user.role } }
 })
+
+createBridge(bridge, 8080, '/bridge', { entries, mcp: true })
 ```
 
-The returned context lands in every handler as the second argument, exactly like middleware context. Same security model for humans and agents.
+The resolved context lands in every handler as the second argument, identically for a browser request and an agent's tool call — one security model for humans and AI. When a middleware blocks a tool call, the model receives the **status and message as JSON** (e.g. `{ "status": 401, "error": "Unauthorized" }`) so it knows *why* it was denied. On tool surfaces a middleware sees the request **headers** and the matched entry name as **`req.path`** (so path-based key derivation like `req.path.split('/').pop()` works everywhere) — but no request **body**, since MCP can forward nothing else.
 
 ### Control how many tools the client sees
 
@@ -283,11 +285,14 @@ import { getTools, handleToolCall } from 'typed-bridge'
 // Build the tool list (openai | anthropic | json-schema). Omit toolMode to use the default, on_demand.
 const tools = getTools(entries, { toolMode: 'on_demand', format: 'openai' })
 
-// Execute whatever the model called — same call for both modes
-const result = await handleToolCall(bridge, entries, toolCall, { context })
+// Execute whatever the model called — same call for both modes.
+// Forward the incoming request headers so your middleware chain (auth, context) runs here too.
+const result = await handleToolCall(bridge, entries, toolCall, { headers: req.headers })
 ```
 
 Because you pass `toolMode` explicitly, a single process can run one assistant with `attach_all` and another with `on_demand`. `handleToolCall` needs no mode at all — it dispatches on the tool name (a meta-tool name runs the discovery flow, anything else runs that entry directly), so your loop is written once and never changes when you switch modes.
+
+Your `createMiddleware` chain runs on these tool calls just like it does on HTTP and MCP. Unlike MCP — where the server already holds the client's headers — an LLM loop is your own code, so you pass the request `headers` into `handleToolCall` to drive the chain. The middleware-derived context is merged on top of any `context` you also pass. If a needed header is missing, the matching middleware denies the call (the model receives a JSON `{ status, error }`), exactly as it would over HTTP.
 
 ### `on_demand` — three tools, discovered as needed (default)
 
@@ -367,7 +372,7 @@ GraphQL is unmatched when clients need to shape their own queries across a compl
 
 ## Middleware when you need it
 
-Pattern based middleware runs before handlers and can inject context:
+Pattern based middleware runs before handlers and can inject context. The **same chain runs on all three surfaces** — HTTP requests, MCP tool calls, and LLM tool calls — matched by entry name (e.g. `user.fetch` matches `user.*`). Over HTTP a middleware blocks by writing to `res`; on tool calls that same `res.status(code).send(msg)` is reported back to the model as JSON (`{ status, error }`). On tool surfaces a middleware sees `req.headers` and `req.path` (the matched entry name) but **no `req.body`** and no real `res` for side effects (cookies, custom headers are no-ops), so write auth/context logic against `req.headers` / `req.path`:
 
 ```ts
 import { createMiddleware } from 'typed-bridge'

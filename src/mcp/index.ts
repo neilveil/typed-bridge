@@ -6,8 +6,6 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { Bridge, BridgeEntries, getMetaTools, handleToolCall, isEntryVisible, toToolInputSchema, ToolMode } from '../tools'
 
-export type MCPGetContext = (headers: IncomingHttpHeaders) => Record<string, unknown> | Promise<Record<string, unknown>>
-
 type HeadersRef = { current: IncomingHttpHeaders }
 
 type Session = {
@@ -31,7 +29,6 @@ function createMCPServer(
     bridge: Bridge,
     entries: BridgeEntries,
     headersRef: HeadersRef,
-    getContext?: MCPGetContext,
     toolMode: ToolMode = 'on_demand'
 ): Server {
     const server = new Server({ name: 'typed-bridge', version: '1.0.0' }, { capabilities: { tools: {} } })
@@ -56,22 +53,25 @@ function createMCPServer(
         const { name, arguments: args } = request.params
 
         try {
-            // Derive per-request context from forwarded headers
-            const context = getContext ? await getContext(headersRef.current) : undefined
-
             // Mode-agnostic dispatch: meta-tool names run discovery, anything else runs the
-            // entry directly. Visibility (`mcp: false`) and the output limit are enforced inside.
+            // entry directly. The client's forwarded headers drive the middleware chain, which
+            // builds the handler context. Visibility (`mcp: false`) and the output limit are
+            // enforced inside.
             const result = await handleToolCall(
                 bridge,
                 entries,
                 { name, arguments: (args as Record<string, unknown>) || {} },
-                { context, surface: 'mcp' }
+                { surface: 'mcp', headers: headersRef.current }
             )
 
             return { content: [{ type: 'text' as const, text: JSON.stringify(result) ?? '' }] }
-        } catch (error: unknown) {
+        } catch (error: any) {
+            // Surface the status + message as JSON so the model knows *why* a call was denied
+            // (e.g. a 401 from an auth middleware) instead of seeing an opaque stop.
             const message = error instanceof Error ? error.message : String(error)
-            return { content: [{ type: 'text' as const, text: message }], isError: true }
+            const status = typeof error?.status === 'number' ? error.status : undefined
+            const payload = status ? { status, error: message } : { error: message }
+            return { content: [{ type: 'text' as const, text: JSON.stringify(payload) }], isError: true }
         }
     })
 
@@ -83,7 +83,6 @@ export function mountMCP(
     bridge: Bridge,
     entries: BridgeEntries,
     path: string = '/mcp',
-    getContext?: MCPGetContext,
     toolMode: ToolMode = 'on_demand'
 ) {
     const sessions = new Map<string, Session>()
@@ -112,7 +111,7 @@ export function mountMCP(
             transport = session.transport
         } else if (!sessionId && req.method === 'POST') {
             const headersRef: HeadersRef = { current: req.headers }
-            const server = createMCPServer(bridge, entries, headersRef, getContext, toolMode)
+            const server = createMCPServer(bridge, entries, headersRef, toolMode)
 
             transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),

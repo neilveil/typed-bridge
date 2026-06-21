@@ -1,5 +1,7 @@
+import { IncomingHttpHeaders } from 'node:http'
 import { z } from 'zod'
 import { config } from '../config'
+import { runMiddlewaresForTool } from '../middleware'
 
 export type BridgeEntry = {
     handler: (...args: any[]) => Promise<any>
@@ -65,6 +67,9 @@ export interface GetToolsOptions {
 export interface HandleToolCallOptions {
     context?: unknown
     surface?: ToolSurface
+    // Request headers forwarded to the middleware chain. MCP supplies the client's
+    // forwarded headers automatically; LLM/direct callers pass them in (e.g. `req.headers`).
+    headers?: IncomingHttpHeaders
 }
 
 export interface ToolCall {
@@ -353,14 +358,27 @@ export function enforceToolOutputLimit(result: unknown): string {
     return serialized
 }
 
-// The single execution boundary: runs the handler and enforces tbConfig.maxToolOutputChars
-// on its result. Every path that actually executes an entry (tool_use, direct call) goes
-// through here, so output is capped exactly once. Discovery (search/describe) never does.
-export async function toolUse(bridge: Bridge, name: string, args: unknown, context?: unknown) {
+// The single execution boundary: runs the middleware chain, then the handler, and enforces
+// tbConfig.maxToolOutputChars on its result. Every path that actually executes an entry
+// (tool_use, direct call) goes through here, so middleware runs and output is capped exactly
+// once. Discovery (search/describe) never reaches here, so listing tools needs no auth.
+export async function toolUse(
+    bridge: Bridge,
+    name: string,
+    args: unknown,
+    context?: unknown,
+    headers?: IncomingHttpHeaders
+) {
     const handler = bridge[name]
     if (!handler) throw new Error(`Tool not found: ${name}`)
 
-    const result = await handler(args, context)
+    // Run the same pattern-matched middleware chain as HTTP. The caller-supplied context is
+    // the base; middleware-derived context is merged on top (more authoritative, header-derived).
+    const middlewareContext = await runMiddlewaresForTool(name, headers)
+    const base = context && typeof context === 'object' ? context : {}
+    const mergedContext = { ...base, ...middlewareContext }
+
+    const result = await handler(args, mergedContext)
     enforceToolOutputLimit(result)
 
     return result
@@ -371,7 +389,8 @@ export async function handleMetaToolCall(
     entries: BridgeEntries,
     toolCall: ToolCall,
     context?: unknown,
-    surface: ToolSurface = 'llm'
+    surface: ToolSurface = 'llm',
+    headers?: IncomingHttpHeaders
 ): Promise<unknown> {
     switch (toolCall.name) {
         case 'tool_search':
@@ -385,7 +404,7 @@ export async function handleMetaToolCall(
 
             if (!isEntryVisible(entries[args.name], surface)) throw new Error(`Tool not found: ${args.name}`)
 
-            return toolUse(bridge, args.name, args.arguments || {}, context)
+            return toolUse(bridge, args.name, args.arguments || {}, context, headers)
         }
 
         default:
@@ -434,17 +453,18 @@ export async function handleToolCall(
 ): Promise<unknown> {
     const surface = options?.surface || 'llm'
     const context = options?.context
+    const headers = options?.headers
 
     if (isMetaToolName(toolCall.name)) {
-        return handleMetaToolCall(bridge, entries, toolCall, context, surface)
+        return handleMetaToolCall(bridge, entries, toolCall, context, surface, headers)
     }
 
     // Direct entry call (attach_all mode): respect per-surface visibility.
     if (!isEntryVisible(entries[toolCall.name], surface)) throw new Error(`Tool not found: ${toolCall.name}`)
 
-    // `toolUse` enforces tbConfig.maxToolOutputChars on the executed result — the only
-    // place output is unbounded. Discovery results (tool_search / tool_describe) are
-    // deliberately left uncapped so a blanket search can never deadlock the model's
-    // own recovery path.
-    return toolUse(bridge, toolCall.name, toolCall.arguments || {}, context)
+    // `toolUse` runs the middleware chain and enforces tbConfig.maxToolOutputChars on the
+    // executed result — the only place output is unbounded. Discovery results (tool_search /
+    // tool_describe) are deliberately left uncapped, and skip middleware, so a blanket search
+    // can never deadlock the model's own recovery path.
+    return toolUse(bridge, toolCall.name, toolCall.arguments || {}, context, headers)
 }

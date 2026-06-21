@@ -8,11 +8,20 @@
  * Run: `npm run test:mcp`
  */
 
+import { createMiddleware } from '../src/middleware'
 import { defineBridge, getTools, handleToolCall, toolSearch } from '../src/tools'
 import { entries } from '../src/demo/bridge'
+// Side-effect import: registers the demo's auth middleware (user.* / product.* / order.*),
+// which now runs on tool calls — mirrors how the real server wires it in demo/index.ts.
+import '../src/demo/middleware'
 
 const bridge = defineBridge(entries)
 const ctx = { requestedAt: Date.now(), userId: 1 }
+
+// Middleware now runs on tool calls too, so executing an entry needs the same headers the
+// demo's auth middleware reads over HTTP. user.remove additionally requires the admin header.
+const headers = { authorization: 'Bearer 1' }
+const adminHeaders = { authorization: 'Bearer 1', 'x-admin': 'true' }
 
 let passed = 0
 let failed = 0
@@ -33,13 +42,18 @@ const assert = (condition: boolean, message: string) => {
 }
 
 const expectReject = async (fn: () => Promise<unknown>, substring: string) => {
+    let resolved = false
     try {
         await fn()
-        throw new Error(`Expected rejection containing "${substring}", but it resolved`)
+        resolved = true
     } catch (error: unknown) {
         const message = error instanceof Error ? error.message : String(error)
         if (!message.includes(substring)) throw new Error(`Expected "${substring}", got: "${message}"`)
+        return
     }
+    // Thrown outside the catch so the sentinel can't be swallowed, and worded generically so
+    // it never accidentally contains the expected substring (which would mask a real failure).
+    if (resolved) throw new Error('Expected a rejection, but the call resolved successfully')
 }
 
 const totalEntries = Object.keys(entries).length
@@ -105,7 +119,7 @@ async function main() {
             bridge,
             entries,
             { name: 'tool_use', arguments: { name: 'user.fetch', arguments: { id: 1 } } },
-            { context: ctx }
+            { context: ctx, headers }
         )) as { id: number }
         assert(result.id === 1, `Expected user id 1, got ${result.id}`)
     })
@@ -146,14 +160,14 @@ async function main() {
             bridge,
             entries,
             { name: 'tool_use', arguments: { name: 'user.create', arguments: { name: 'Temp', email: 't@t.com' } } },
-            { context: ctx }
+            { context: ctx, headers }
         )) as { id: number }
 
         const removed = (await handleToolCall(
             bridge,
             entries,
             { name: 'tool_use', arguments: { name: 'user.remove', arguments: { id: created.id } } },
-            { context: ctx, surface: 'llm' }
+            { context: ctx, surface: 'llm', headers: adminHeaders }
         )) as { success: boolean }
         assert(removed.success === true, 'user.remove should succeed on llm surface')
     })
@@ -165,7 +179,7 @@ async function main() {
             bridge,
             entries,
             { name: 'product.fetch', arguments: { id: 1 } },
-            { context: ctx }
+            { context: ctx, headers }
         )) as { id: number }
         assert(result.id === 1, `Expected product id 1, got ${result.id}`)
     })
@@ -186,11 +200,91 @@ async function main() {
     // --- execution parity: same validation regardless of path ---
 
     await test('validation error is identical via direct call and meta tool_use', async () => {
-        await expectReject(() => handleToolCall(bridge, entries, { name: 'user.fetch', arguments: { id: 0 } }), '')
         await expectReject(
-            () => handleToolCall(bridge, entries, { name: 'tool_use', arguments: { name: 'user.fetch', arguments: { id: 0 } } }),
+            () => handleToolCall(bridge, entries, { name: 'user.fetch', arguments: { id: 0 } }, { context: ctx, headers }),
             ''
         )
+        await expectReject(
+            () =>
+                handleToolCall(
+                    bridge,
+                    entries,
+                    { name: 'tool_use', arguments: { name: 'user.fetch', arguments: { id: 0 } } },
+                    { context: ctx, headers }
+                ),
+            ''
+        )
+    })
+
+    // --- middleware applies to tool calls ---
+
+    await test('tool call without headers is denied by auth middleware', async () => {
+        await expectReject(
+            () =>
+                handleToolCall(bridge, entries, {
+                    name: 'tool_use',
+                    arguments: { name: 'user.fetch', arguments: { id: 1 } }
+                }),
+            'Unauthorized'
+        )
+    })
+
+    await test('direct tool call without headers is denied by auth middleware', async () => {
+        await expectReject(
+            () => handleToolCall(bridge, entries, { name: 'product.fetch', arguments: { id: 1 } }),
+            'Unauthorized'
+        )
+    })
+
+    await test('user.remove tool call without admin header is denied', async () => {
+        const created = (await handleToolCall(
+            bridge,
+            entries,
+            { name: 'user.create', arguments: { name: 'NoAdmin', email: 'na@t.com' } },
+            { headers }
+        )) as { id: number }
+
+        await expectReject(
+            () =>
+                handleToolCall(
+                    bridge,
+                    entries,
+                    { name: 'user.remove', arguments: { id: created.id } },
+                    { surface: 'llm', headers }
+                ),
+            'Admin access required'
+        )
+    })
+
+    await test('admin header allows user.remove tool call', async () => {
+        const created = (await handleToolCall(
+            bridge,
+            entries,
+            { name: 'user.create', arguments: { name: 'WithAdmin', email: 'wa@t.com' } },
+            { headers }
+        )) as { id: number }
+
+        const removed = (await handleToolCall(
+            bridge,
+            entries,
+            { name: 'user.remove', arguments: { id: created.id } },
+            { surface: 'llm', headers: adminHeaders }
+        )) as { success: boolean }
+        assert(removed.success === true, 'user.remove should succeed with admin header')
+    })
+
+    // Path-based middleware must work on tool surfaces: the synthetic request exposes the
+    // matched entry name as `req.path` (so `req.path.split('/').pop()` resolves it), exactly
+    // as it would over HTTP. Without this, path-deriving middlewares would crash on tool calls.
+    await test('req.path exposes the entry name to middleware on tool calls', async () => {
+        let seenKey: string | undefined
+        createMiddleware('product.list', async (req: any) => {
+            seenKey = (req.path || '').split('/').pop()
+            return {}
+        })
+
+        await handleToolCall(bridge, entries, { name: 'product.list', arguments: {} }, { headers })
+        assert(seenKey === 'product.list', `Expected req.path-derived key "product.list", got "${seenKey}"`)
     })
 
     console.log(`\n--- Results: ${passed} passed, ${failed} failed ---\n`)

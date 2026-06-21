@@ -5,8 +5,9 @@ import express, { Application, Request, Response } from 'express'
 import { Server } from 'http'
 import _path from 'path'
 import { tbConfig } from '..'
-import { getPatternSpecificity, matchesPattern, printStartLogs, printStopLogs } from '../helpers'
-import { MCPGetContext, mountMCP } from '../mcp'
+import { printStartLogs, printStopLogs } from '../helpers'
+import { runMiddlewares } from '../middleware'
+import { mountMCP } from '../mcp'
 import { Bridge, BridgeEntries, ToolMode } from '../tools'
 
 interface CreateBridgeOptions {
@@ -15,18 +16,7 @@ interface CreateBridgeOptions {
     // 'attach_all' lists every visible entry as its own tool.
     toolMode?: ToolMode
     mcp?: boolean | string
-    mcpGetContext?: MCPGetContext
 }
-
-type Middleware = {
-    pattern: string
-    handler: (req: Request, res: Response) => Promise<{ next?: boolean; context?: any } | void>
-}
-
-const middlewares: Middleware[] = []
-
-export const createMiddleware = (pattern: string, handler: Middleware['handler']) =>
-    middlewares.push({ pattern, handler })
 
 let shutdownCallback = () => {}
 
@@ -124,7 +114,7 @@ export const createBridge = (
     // MCP endpoint
     if (options?.mcp && options?.entries) {
         const mcpPath = typeof options.mcp === 'string' ? options.mcp : _path.join(path, 'mcp')
-        mountMCP(app, bridge, options.entries, mcpPath, options.mcpGetContext, options.toolMode || 'on_demand')
+        mountMCP(app, bridge, options.entries, mcpPath, options.toolMode || 'on_demand')
     }
 
     app.use(path, bridgeHandler(bridge))
@@ -168,19 +158,11 @@ const bridgeHandler =
                 return res.status(404).json({ error })
             }
 
-            context = {}
+            const { blocked, context: middlewareContext } = await runMiddlewares(path, req, res)
 
-            const matchingMiddlewares = middlewares
-                .filter(m => matchesPattern(path, m.pattern))
-                .sort((a, b) => getPatternSpecificity(a.pattern) - getPatternSpecificity(b.pattern))
+            if (blocked) return
 
-            for (const middleware of matchingMiddlewares) {
-                const result = await middleware.handler(req, res)
-
-                if (result?.next === false) return
-
-                if (result?.context) context = { ...context, ...result.context }
-            }
+            context = middlewareContext
 
             res.json((await serverFunction(args, context)) || {})
         } catch (error: any) {
@@ -194,6 +176,11 @@ const bridgeHandler =
                 const errorMessage = (keyPath ? keyPath + ': ' : '') + error.issues[0].message
                 return res.status(400).send(errorMessage)
             }
+
+            // Errors carrying an explicit HTTP status (e.g. HttpError for auth/permission
+            // failures) are expected, so respond with that status without logging as an error.
+            if (typeof error?.status === 'number')
+                return res.status(error.status).json({ error: error.message })
 
             if (tbConfig.logs.error) console.error(`ERROR | ${id} ::`, error)
 

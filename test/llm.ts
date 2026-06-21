@@ -12,6 +12,9 @@ import 'dotenv/config'
 import OpenAI from 'openai'
 import { defineBridge, getTools, handleToolCall } from '../src/tools'
 import { entries } from '../src/demo/bridge'
+// Side-effect import: registers the demo's auth middleware (user.* / product.* / order.*),
+// which now runs on tool calls — mirrors how the real server wires it in demo/index.ts.
+import '../src/demo/middleware'
 
 const openai = new OpenAI()
 const bridge = defineBridge(entries)
@@ -41,7 +44,8 @@ type Message = OpenAI.Chat.ChatCompletionMessageParam
 async function runConversation(
     systemPrompt: string,
     userPrompt: string,
-    authContext?: Record<string, unknown>
+    authContext?: Record<string, unknown>,
+    headers: Record<string, string> = { authorization: 'Bearer 1' }
 ): Promise<{ messages: Message[]; lastAssistantMessage: string; toolCalls: string[] }> {
     const messages: Message[] = [
         { role: 'system', content: systemPrompt },
@@ -83,7 +87,12 @@ async function runConversation(
 
             let result: unknown
             try {
-                result = await handleToolCall(bridge, entries, toolCall, { context: authContext })
+                // Middleware runs on tool calls, so forward auth headers for the demo's user.*/
+                // product.*/order.* gates. `authContext` is the base; middleware merges on top.
+                result = await handleToolCall(bridge, entries, toolCall, {
+                    context: authContext,
+                    headers
+                })
             } catch (error: unknown) {
                 result = { error: error instanceof Error ? error.message : String(error) }
             }
@@ -206,6 +215,29 @@ IMPORTANT: When calling tool_use for user.fetch, use id=0 (zero) exactly. Do not
                 lastAssistantMessage.includes('4') ||
                 lastAssistantMessage.includes('5'),
             `Expected product info in response`
+        )
+    })
+
+    // Test 7: middleware auth gate applies to LLM tool calls — no headers → denied.
+    // Assert on the tool result the model received (deterministic), not the model's prose
+    // (the model may hallucinate a friendly answer instead of reporting the error).
+    await test('LLM tool call without auth headers is denied by middleware', async () => {
+        const { toolCalls, messages } = await runConversation(
+            'You are a helpful assistant. Use the provided tools to fetch the requested user.',
+            'Fetch the user with ID 1 and tell me their name.',
+            { requestedAt: Date.now() },
+            {} // no auth headers → user.* middleware must deny the tool call
+        )
+
+        assert(toolCalls.includes('tool_use'), 'Expected a tool_use attempt')
+
+        const toolResults = messages
+            .filter(m => m.role === 'tool')
+            .map(m => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)).toLowerCase())
+
+        assert(
+            toolResults.some(c => c.includes('unauthor') || c.includes('401')),
+            `Expected an auth-denied tool result, got: ${JSON.stringify(toolResults).slice(0, 300)}`
         )
     })
 
