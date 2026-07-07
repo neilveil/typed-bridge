@@ -19,11 +19,16 @@ const SESSION_TTL_MS = 30 * 60 * 1000
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000
 const MAX_SESSIONS = 1000
 
-// The 3 meta-tools, shaped for MCP's { name, description, inputSchema } listing.
+// The meta-tools, shaped for MCP's { name, description, inputSchema } listing. Uses the 'mcp'
+// surface so tool_script is only listed when enabled for MCP.
 const metaToolsForMCP = () =>
-    (getMetaTools({ format: 'json-schema' }) as { name: string; description: string; parameters: unknown }[]).map(
-        tool => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters })
-    )
+    (
+        getMetaTools({ format: 'json-schema', surface: 'mcp' }) as {
+            name: string
+            description: string
+            parameters: unknown
+        }[]
+    ).map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters }))
 
 function createMCPServer(
     bridge: Bridge,

@@ -2,6 +2,7 @@ import { IncomingHttpHeaders } from 'node:http'
 import { z } from 'zod'
 import { config } from '../config'
 import { runMiddlewaresForTool } from '../middleware'
+import { runScript } from './script'
 
 export type BridgeEntry = {
     handler: (...args: any[]) => Promise<any>
@@ -217,8 +218,9 @@ export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) 
 
 // --- Meta-tools (tool_search → tool_describe → tool_use) ---
 
-export function getMetaTools(options?: { format?: LLMToolFormat }) {
+export function getMetaTools(options?: { format?: LLMToolFormat; surface?: ToolSurface }) {
     const format = options?.format || 'openai'
+    const surface = options?.surface || 'llm'
 
     const searchTool = {
         name: 'tool_search',
@@ -271,7 +273,32 @@ export function getMetaTools(options?: { format?: LLMToolFormat }) {
         }
     }
 
-    const tools = [searchTool, describeTool, useTool]
+    const scriptTool = {
+        name: 'tool_script',
+        description:
+            'Run a JavaScript snippet in a sandbox to process data across multiple tools in one step. ' +
+            'Inside the code you can `await callTool(name, args)` (same tools as tool_use) as many times as ' +
+            'needed and `return` a value. Tool results fetched here are NOT size-limited, so use this to fetch ' +
+            'large data and filter/aggregate/join it down to the small result you actually need — only your ' +
+            'returned value is sent back (and is size-limited). Discover tool names and schemas with ' +
+            'tool_search and tool_describe first. Example: ' +
+            "`const users = await callTool('user.fetchAll', {}); return users.filter(u => u.active).length`",
+        parameters: {
+            type: 'object',
+            properties: {
+                code: {
+                    type: 'string',
+                    description:
+                        'JavaScript to run. May use `await callTool(name, args)` and should `return` a small value.'
+                }
+            },
+            required: ['code']
+        }
+    }
+
+    // tool_script is opt-out (config.script.enabled) and only offered on its configured surfaces.
+    const scriptEnabled = config.script.enabled && config.script.surfaces.includes(surface)
+    const tools = scriptEnabled ? [searchTool, describeTool, useTool, scriptTool] : [searchTool, describeTool, useTool]
 
     switch (format) {
         case 'openai':
@@ -367,7 +394,10 @@ export async function toolUse(
     name: string,
     args: unknown,
     context?: unknown,
-    headers?: IncomingHttpHeaders
+    headers?: IncomingHttpHeaders,
+    // `enforceLimit: false` skips the output cap for this call. Used by `tool_script`, where
+    // per-call results stay inside the sandbox and only the script's final return is capped.
+    options?: { enforceLimit?: boolean }
 ) {
     const handler = bridge[name]
     if (!handler) throw new Error(`Tool not found: ${name}`)
@@ -379,7 +409,7 @@ export async function toolUse(
     const mergedContext = { ...base, ...middlewareContext }
 
     const result = await handler(args, mergedContext)
-    enforceToolOutputLimit(result)
+    if (options?.enforceLimit !== false) enforceToolOutputLimit(result)
 
     return result
 }
@@ -407,6 +437,18 @@ export async function handleMetaToolCall(
             return toolUse(bridge, args.name, args.arguments || {}, context, headers)
         }
 
+        case 'tool_script': {
+            // Respect the same gating as discovery: disabled or off-surface behaves as "not found".
+            if (!config.script.enabled || !config.script.surfaces.includes(surface))
+                throw new Error('Tool not found: tool_script')
+
+            // The sandbox runs uncapped internally; only the final return value is limit-checked.
+            const value = await runScript(bridge, entries, toolCall.arguments?.code, { context, surface, headers })
+            enforceToolOutputLimit(value)
+
+            return value
+        }
+
         default:
             throw new Error(
                 `Unknown meta-tool: ${toolCall.name}. Expected "tool_search", "tool_describe", or "tool_use".`
@@ -416,7 +458,7 @@ export async function handleMetaToolCall(
 
 // The three meta-tool names are reserved; a tool call by any of these runs the
 // discovery flow, anything else is treated as a direct entry call.
-export const META_TOOL_NAMES = ['tool_search', 'tool_describe', 'tool_use'] as const
+export const META_TOOL_NAMES = ['tool_search', 'tool_describe', 'tool_use', 'tool_script'] as const
 
 export function isMetaToolName(name: string): boolean {
     return (META_TOOL_NAMES as readonly string[]).includes(name)
@@ -431,7 +473,7 @@ export function getTools(entries: BridgeEntries, options?: GetToolsOptions) {
     const toolMode = options?.toolMode || 'on_demand'
     const format = options?.format || 'openai'
 
-    if (toolMode === 'on_demand') return getMetaTools({ format })
+    if (toolMode === 'on_demand') return getMetaTools({ format, surface: options?.surface || 'llm' })
 
     return toLLMTools(entries, {
         format,

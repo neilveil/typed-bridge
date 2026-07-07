@@ -241,6 +241,13 @@ type TypedBridge = {
         nullOptStr?: string | null | undefined;
         optDates?: Date[] | undefined;
     }>;
+    'analytics.events': (args?: undefined) => Promise<{
+        id: number;
+        userId: number;
+        type: "view" | "click" | "purchase";
+        amount: number;
+        createdAt: Date;
+    }[]>;
 };
 
 type TypedBridgeConfig = {

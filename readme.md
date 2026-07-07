@@ -322,6 +322,36 @@ Best when you have a handful of endpoints and want the model to see them all imm
 
 > Two functions cover every case: `getTools` to build the tool list and `handleToolCall` to run whatever the model picks — in either mode.
 
+### `tool_script` — run code across tools in one step
+
+A fourth meta-tool, **on by default**, lets the model write a small JavaScript snippet that runs server-side in a WASM sandbox and calls your tools via `await callTool(name, args)`:
+
+```ts
+// The model emits:
+tool_script({
+    code: `
+        const events = await callTool('analytics.events', {})
+        const purchases = events.filter(e => e.type === 'purchase')
+        return { total: events.length, purchases: purchases.length }
+    `
+})
+```
+
+Why it matters: tool results fetched **inside** the script are not size-limited, so the model can pull a large dataset, reduce it in the sandbox, and return only the small projection it actually needs. Just the returned value counts against `maxToolOutputChars` — the raw data never enters the context window. This turns a query that would fail with _"Result too large"_ into a one-shot aggregate.
+
+It stays inside the same boundaries as every other tool call: each `callTool` runs your middleware/auth chain and respects `mcp` / `llm` visibility, and the sandbox has no access to `fs`, `net`, `process`, or host globals — its only capability is `callTool`. Runaway scripts are stopped by a wall-clock timeout and a memory cap.
+
+Configure or disable it via `tbConfig.script`:
+
+```ts
+tbConfig.script.enabled = true              // on by default; set false to remove tool_script
+tbConfig.script.timeoutMs = 5000            // hard wall-clock cap per run
+tbConfig.script.memoryBytes = 64 * 1024 * 1024 // sandbox memory ceiling
+tbConfig.script.surfaces = ['llm', 'mcp']   // which surfaces expose it
+```
+
+> Requires the `quickjs-emscripten` dependency (installed automatically). It's loaded lazily on the first script run, so it adds no startup cost.
+
 ---
 
 ## Why Typed Bridge
@@ -462,6 +492,10 @@ tbConfig.logs.argsOnError = true // Include handler args in error logs
 tbConfig.logs.contextOnError = true // Include resolved context in error logs
 tbConfig.responseDelay = 0 // Artificial delay in ms for testing loading states
 tbConfig.maxToolOutputChars = 100_000 // Cap MCP/LLM tool results (chars of JSON); default 100_000, set 0 to disable
+tbConfig.script.enabled = true // Expose the tool_script sandbox meta-tool (default true)
+tbConfig.script.timeoutMs = 5000 // Per-run wall-clock cap for tool_script
+tbConfig.script.memoryBytes = 64 * 1024 * 1024 // tool_script sandbox memory ceiling
+tbConfig.script.surfaces = ['llm', 'mcp'] // Surfaces that expose tool_script
 ```
 
 > Tool exposure (`attach_all` vs `on_demand`) is **not** global — you pass `toolMode` explicitly to `getTools` for your own loop, and to `createBridge` for the MCP server.
@@ -479,6 +513,8 @@ The same function can serve a data-heavy response over HTTP and as an AI tool. A
 tbConfig.maxToolOutputChars = 250_000 // raise it
 tbConfig.maxToolOutputChars = 0       // or disable the cap entirely
 ```
+
+When a result is too large to return directly, the model can instead reach for [`tool_script`](#tool_script--run-code-across-tools-in-one-step): it fetches the data in the sandbox (uncapped), reduces it, and returns only the aggregate — so the cap protects the context window without blocking the work.
 
 ---
 

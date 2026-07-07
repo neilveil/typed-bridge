@@ -241,6 +241,24 @@ IMPORTANT: When calling tool_use for user.fetch, use id=0 (zero) exactly. Do not
         )
     })
 
+    // Test 8: tool_script — the model writes JS that fetches a large dataset and reduces it
+    // in the sandbox, returning only the aggregate. Exercises the discover → script flow.
+    await test('LLM uses tool_script to aggregate a large dataset in the sandbox', async () => {
+        const { toolCalls, lastAssistantMessage } = await runConversation(
+            `You are a helpful assistant with tools.
+You have a "tool_script" tool that runs a JavaScript snippet server-side. Inside it you can call other tools via \`await callTool(name, args)\` and \`return\` a value. Prefer tool_script for anything that needs to fetch data and compute over it.
+First use tool_search/tool_describe to find the analytics events tool, then use tool_script to fetch the events and count how many have type "purchase". Return just the number.`,
+            'How many analytics events are purchases?',
+            { requestedAt: Date.now(), userId: 1 }
+        )
+
+        assert(toolCalls.includes('tool_script'), `Expected a tool_script call, got: ${toolCalls.join(', ')}`)
+        assert(
+            lastAssistantMessage.includes('200'),
+            `Expected purchase count 200 in response, got: ${lastAssistantMessage.slice(0, 200)}`
+        )
+    })
+
     console.log(`\n--- Results: ${passed} passed, ${failed} failed ---\n`)
     process.exit(failed > 0 ? 1 : 0)
 }

@@ -8,6 +8,7 @@
  * Run: `npm run test:mcp`
  */
 
+import { config } from '../src/config'
 import { createMiddleware } from '../src/middleware'
 import { defineBridge, getTools, handleToolCall, toolSearch } from '../src/tools'
 import { entries } from '../src/demo/bridge'
@@ -63,12 +64,12 @@ async function main() {
 
     // --- getTools: on_demand ---
 
-    await test('on_demand returns exactly the 3 meta-tools', () => {
+    await test('on_demand returns the 4 meta-tools (incl. tool_script, enabled by default)', () => {
         const tools = getTools(entries, { toolMode: 'on_demand', format: 'openai' }) as { function: { name: string } }[]
         const names = tools.map(t => t.function.name).sort()
-        assert(tools.length === 3, `Expected 3 meta-tools, got ${tools.length}`)
+        assert(tools.length === 4, `Expected 4 meta-tools, got ${tools.length}`)
         assert(
-            JSON.stringify(names) === JSON.stringify(['tool_describe', 'tool_search', 'tool_use']),
+            JSON.stringify(names) === JSON.stringify(['tool_describe', 'tool_script', 'tool_search', 'tool_use']),
             `Unexpected meta-tool names: ${names.join(', ')}`
         )
     })
@@ -76,7 +77,37 @@ async function main() {
     await test('on_demand default mode matches explicit on_demand', () => {
         const a = getTools(entries, { format: 'openai' }) as unknown[]
         const b = getTools(entries, { toolMode: 'on_demand', format: 'openai' }) as unknown[]
-        assert(a.length === 3 && b.length === 3, 'Default toolMode should be on_demand (3 meta-tools)')
+        assert(a.length === 4 && b.length === 4, 'Default toolMode should be on_demand (4 meta-tools)')
+    })
+
+    await test('tool_script is dropped from meta-tools when disabled', () => {
+        config.script.enabled = false
+        try {
+            const tools = getTools(entries, { toolMode: 'on_demand', format: 'openai' }) as {
+                function: { name: string }
+            }[]
+            const names = tools.map(t => t.function.name)
+            assert(tools.length === 3, `Expected 3 meta-tools when disabled, got ${tools.length}`)
+            assert(!names.includes('tool_script'), 'tool_script must not be listed when disabled')
+        } finally {
+            config.script.enabled = true
+        }
+    })
+
+    await test('tool_script is hidden on a surface not in config.script.surfaces', () => {
+        config.script.surfaces = ['llm']
+        try {
+            const llm = getTools(entries, { toolMode: 'on_demand', format: 'openai', surface: 'llm' }) as {
+                function: { name: string }
+            }[]
+            const mcp = getTools(entries, { toolMode: 'on_demand', format: 'openai', surface: 'mcp' }) as {
+                function: { name: string }
+            }[]
+            assert(llm.some(t => t.function.name === 'tool_script'), 'tool_script should be listed on llm')
+            assert(!mcp.some(t => t.function.name === 'tool_script'), 'tool_script should be hidden on mcp')
+        } finally {
+            config.script.surfaces = ['llm', 'mcp']
+        }
     })
 
     // --- getTools: attach_all + surface visibility ---

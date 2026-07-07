@@ -2,6 +2,7 @@ import { defineBridge } from '../..'
 import * as user from './user'
 import * as product from './product'
 import * as order from './order'
+import * as analytics from './analytics'
 
 export const entries = {
     'user.fetch': user.fetch,
@@ -21,7 +22,9 @@ export const entries = {
     'order.resolve': order.resolve,
     'order.statusFilter': order.statusFilter,
     'order.tag': order.tag,
-    'order.primitives': order.primitives
+    'order.primitives': order.primitives,
+
+    'analytics.events': analytics.events_list
 }
 
 export default defineBridge(entries)

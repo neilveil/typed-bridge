@@ -57,6 +57,22 @@ createMiddleware('order.*', async (req, res) => {
     }
 })
 
+// Auth middleware — runs for all analytics.* routes
+createMiddleware('analytics.*', async (req, res) => {
+    const token = req.headers.authorization
+
+    if (!token || !token.startsWith('Bearer ')) {
+        res.status(401).send('Unauthorized')
+        return { next: false }
+    }
+
+    const userId = parseInt(token.split(' ')[1]) || 1
+
+    return {
+        context: { userId }
+    }
+})
+
 // Admin middleware — runs only for user.remove (highest specificity)
 createMiddleware('user.remove', async (req, res) => {
     const isAdmin = req.headers['x-admin'] === 'true'
