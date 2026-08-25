@@ -4,6 +4,12 @@
     "version": "4.2.0",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
+    "files": [
+        "dist",
+        "!dist/demo",
+        "readme.md",
+        "license.txt"
+    ],
     "author": "neilveil",
     "repository": "neilveil/typed-bridge",
     "license": "MIT",
