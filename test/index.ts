@@ -243,6 +243,42 @@ const main = async () => {
         typedBridgeConfig.onResponse = () => {}
     })
 
+    console.log('\n--- refusal statuses ---\n')
+
+    // A refusal a handler chose must arrive as the status it chose. Without
+    // this every throw is a 500, and "not yours" is indistinguishable from the
+    // server falling over — to the caller, to the logs, and to anything
+    // watching the error rate.
+    const statusOfCall = async (as: string): Promise<number> => {
+        const response = await globalThis.fetch("http://localhost:8080/bridge/user.refuse", {
+            method: 'POST',
+            // `user.*` is behind the demo's auth middleware, and this is
+            // testing what a handler decides — not whether the gate works
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer 123' },
+            body: JSON.stringify({ as })
+        })
+
+        return response.status
+    }
+
+    await test('notFound arrives as 404', async () => {
+        assert((await statusOfCall('notFound')) === 404, 'expected 404')
+    })
+
+    await test('forbidden arrives as 403', async () => {
+        assert((await statusOfCall('forbidden')) === 403, 'expected 403')
+    })
+
+    await test('badRequest arrives as 400', async () => {
+        assert((await statusOfCall('badRequest')) === 400, 'expected 400')
+    })
+
+    await test('an error with no status is still a 500', async () => {
+        // The half that matters most: a real fault must not start reading as
+        // a refusal just because refusals now have statuses
+        assert((await statusOfCall('unhandled')) === 500, 'expected 500')
+    })
+
     // Summary
     console.log(`\n--- Results: ${passed} passed, ${failed} failed ---\n`)
     process.exit(failed > 0 ? 1 : 0)

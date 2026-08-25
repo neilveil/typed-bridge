@@ -1,6 +1,7 @@
 export { Application, default as express, Express, NextFunction, Request, Response, Router } from 'express'
 export { createBridge, onShutdown } from './bridge'
 export { config as tbConfig } from './config'
+export { badRequest, BridgeError, forbidden, notFound, statusOf } from './error'
 export { createMiddleware } from './middleware'
 export type { Middleware } from './middleware'
 export { mountMCP } from './mcp'

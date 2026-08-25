@@ -5,6 +5,7 @@ import express, { Application, Request, Response } from 'express'
 import { Server } from 'http'
 import _path from 'path'
 import { tbConfig } from '..'
+import { statusOf } from '../error'
 import { printStartLogs, printStopLogs } from '../helpers'
 import { runMiddlewares } from '../middleware'
 import { mountMCP } from '../mcp'
@@ -175,6 +176,18 @@ const bridgeHandler =
                 const keyPath = error.issues[0].path.join('/')
                 const errorMessage = (keyPath ? keyPath + ': ' : '') + error.issues[0].message
                 return res.status(400).send(errorMessage)
+            }
+
+            // A refusal the handler chose — not found, forbidden, invalid.
+            // Logged as one line rather than a stack trace: it is expected
+            // behaviour, and burying real faults under it is how error logs
+            // stop being read.
+            const status = statusOf(error)
+
+            if (status) {
+                if (tbConfig.logs.error) console.error(`REFUSED | ${id} :: ${status} ${error.message}`)
+
+                return res.status(status).json({ error: error.message })
             }
 
             if (tbConfig.logs.error) console.error(`ERROR | ${id} ::`, error)

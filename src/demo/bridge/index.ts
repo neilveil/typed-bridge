@@ -10,6 +10,7 @@ export const entries = {
     'user.update': user.update,
     'user.remove': user.remove,
     'user.fetchAll': user.fetchAll,
+    'user.refuse': user.refuse,
 
     'product.fetch': product.fetch,
     'product.create': product.create,

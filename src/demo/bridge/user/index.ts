@@ -1,4 +1,4 @@
-import { z, defineEntry } from '../../..'
+import { badRequest, defineEntry, forbidden, notFound, z } from '../../..'
 import * as context from '../context'
 
 const userSchema = z.object({
@@ -26,9 +26,30 @@ export const fetch = defineEntry({
     res: userSchema,
     handler: async (args, _ctx: context.user) => {
         const user = users.find(u => u.id === args.id)
-        if (!user) throw new Error(`User with ID ${args.id} not found`)
+
+        // `notFound` rather than a bare Error: a missing record is a normal
+        // answer, and a 500 would report it as the server falling over
+        if (!user) throw notFound(`User with ID ${args.id} not found`)
 
         return user
+    }
+})
+
+// Exists to exercise the refusal statuses end to end — one entry per shape,
+// so the demo covers what a handler can decide rather than only what it can
+// return
+export const refuse = defineEntry({
+    description: 'Refuse a call with a chosen status, to exercise error mapping',
+    args: z.object({ as: z.enum(['notFound', 'forbidden', 'badRequest', 'unhandled']) }),
+    res: z.object({ never: z.boolean() }),
+    handler: async args => {
+        if (args.as === 'notFound') throw notFound('Nothing here')
+        if (args.as === 'forbidden') throw forbidden('Not yours')
+        if (args.as === 'badRequest') throw badRequest('Malformed')
+
+        // No status on it, so it must still come back as a 500 — a real fault
+        // must not start looking like a refusal
+        throw new Error('Something actually broke')
     }
 })
 
