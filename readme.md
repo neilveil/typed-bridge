@@ -206,6 +206,8 @@ Point any MCP client at it:
 
 Typed Bridge is a **remote (HTTP) MCP server**, so the client just needs the `url` and any auth `headers` — those headers flow straight into your middleware chain. (The `env` block you may have seen elsewhere is only for **stdio** servers the client launches as a local process; there is no subprocess here, so it does nothing.)
 
+The server is **stateless**: every tool call is a self-contained request with no session handshake, so it scales horizontally and holds no per-client memory. The trade-off is no server-initiated notifications (progress updates, pushed tool-list changes) — for request/response tool calling, nothing is lost.
+
 ### Auth that actually works
 
 Your `createMiddleware` chain runs on MCP tool calls automatically — the client's forwarded headers are fed through the exact same pattern-matched middleware that guards HTTP. No separate config, no duplicated logic:
