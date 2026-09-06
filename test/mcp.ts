@@ -1,9 +1,11 @@
 /**
  * Deterministic tests for tool modes, surfaces, and visibility — no network or LLM.
  * Covers the matrix that the MCP server and consumer LLM loops both rely on:
- *   - getTools: 'on_demand' → 3 meta-tools, 'attach_all' → one tool per visible entry
+ *   - getTools: 'on_demand' → 3 discovery tools, 'attach_all' → one tool per visible entry,
+ *     with `tool_script` listed in both
  *   - handleToolCall: meta-flow vs direct-call dispatch, in both surfaces
  *   - visibility: `mcp: false` hides an entry from the 'mcp' surface only
+ *   - the output cap: enforced on both dispatch paths, with an error naming a real recourse
  *   - MCP transport: stateless request handling over a real HTTP listener
  *
  * Run: `npm run test:mcp`
@@ -15,7 +17,7 @@ import { join } from 'node:path'
 import { config } from '../src/config'
 import { mountMCP } from '../src/mcp'
 import { createMiddleware } from '../src/middleware'
-import { defineBridge, getTools, handleToolCall, toolSearch } from '../src/tools'
+import { defineBridge, getTools, handleToolCall, toolSearch, ToolMode } from '../src/tools'
 import { entries } from '../src/demo/bridge'
 // Side-effect import: registers the demo's auth middleware (user.* / product.* / order.*),
 // which now runs on tool calls — mirrors how the real server wires it in demo/index.ts.
@@ -129,11 +131,15 @@ async function main() {
 
     // --- getTools: attach_all + surface visibility ---
 
+    // Every entry, plus tool_script — the sandbox is listed in both modes because the output
+    // cap applies in both, and it is the only way past it.
+    const attachAllCount = totalEntries + 1
+
     await test('attach_all (llm surface) attaches every entry as a tool', () => {
         const tools = getTools(entries, { toolMode: 'attach_all', format: 'openai' }) as {
             function: { name: string }
         }[]
-        assert(tools.length === totalEntries, `Expected ${totalEntries} tools, got ${tools.length}`)
+        assert(tools.length === attachAllCount, `Expected ${attachAllCount} tools, got ${tools.length}`)
         assert(
             tools.some(t => t.function.name === 'user.remove'),
             'user.remove is an LLM tool (llm not disabled)'
@@ -146,8 +152,61 @@ async function main() {
             format: 'openai',
             surface: 'mcp'
         }) as { function: { name: string } }[]
-        assert(tools.length === totalEntries - 1, `Expected ${totalEntries - 1} mcp tools, got ${tools.length}`)
+        assert(tools.length === attachAllCount - 1, `Expected ${attachAllCount - 1} mcp tools, got ${tools.length}`)
         assert(!tools.some(t => t.function.name === 'user.remove'), 'user.remove must be hidden from MCP')
+    })
+
+    // --- getTools: tool_script rides along in attach_all ---
+
+    await test('attach_all lists tool_script on both surfaces', () => {
+        for (const surface of ['llm', 'mcp'] as const) {
+            const tools = getTools(entries, { toolMode: 'attach_all', format: 'openai', surface }) as {
+                function: { name: string }
+            }[]
+            assert(
+                tools.some(t => t.function.name === 'tool_script'),
+                `tool_script should be listed in attach_all on ${surface}`
+            )
+        }
+    })
+
+    await test('attach_all describes tool_script without naming the discovery tools', () => {
+        const tools = getTools(entries, { toolMode: 'attach_all', format: 'openai' }) as {
+            function: { name: string; description: string }
+        }[]
+        const scriptTool = tools.find(t => t.function.name === 'tool_script')
+        assert(!!scriptTool, 'tool_script should be listed in attach_all')
+        // tool_search / tool_describe are not listed in this mode, so pointing at them would
+        // send the model after tools it cannot call.
+        assert(
+            !scriptTool.function.description.includes('tool_search'),
+            'attach_all description must not reference tool_search'
+        )
+    })
+
+    await test('attach_all drops tool_script when disabled', () => {
+        config.script.enabled = false
+        try {
+            const tools = getTools(entries, { toolMode: 'attach_all', format: 'openai' }) as {
+                function: { name: string }
+            }[]
+            assert(tools.length === totalEntries, `Expected ${totalEntries} tools, got ${tools.length}`)
+            assert(!tools.some(t => t.function.name === 'tool_script'), 'tool_script must not be listed when disabled')
+        } finally {
+            config.script.enabled = true
+        }
+    })
+
+    await test('attach_all drops tool_script on a surface not in config.script.surfaces', () => {
+        config.script.surfaces = ['llm']
+        try {
+            const tools = getTools(entries, { toolMode: 'attach_all', format: 'openai', surface: 'mcp' }) as {
+                function: { name: string }
+            }[]
+            assert(!tools.some(t => t.function.name === 'tool_script'), 'tool_script must be hidden on mcp')
+        } finally {
+            config.script.surfaces = ['llm', 'mcp']
+        }
     })
 
     // --- toolSearch surface filtering ---
@@ -267,6 +326,90 @@ async function main() {
                 ),
             'Tool not found'
         )
+    })
+
+    // --- output cap: enforced on both paths, and the error names a real way out ---
+
+    await test('attach_all: the output cap fires on a direct entry call', async () => {
+        const original = config.maxToolOutputChars
+        config.maxToolOutputChars = 50
+        try {
+            await expectReject(
+                () =>
+                    handleToolCall(
+                        bridge,
+                        entries,
+                        { name: 'analytics.events', arguments: {} },
+                        { context: ctx, headers }
+                    ),
+                'too large'
+            )
+        } finally {
+            config.maxToolOutputChars = original
+        }
+    })
+
+    await test('cap error points at tool_script when the sandbox is reachable', async () => {
+        const original = config.maxToolOutputChars
+        config.maxToolOutputChars = 50
+        try {
+            await expectReject(
+                () =>
+                    handleToolCall(
+                        bridge,
+                        entries,
+                        { name: 'analytics.events', arguments: {} },
+                        { context: ctx, headers }
+                    ),
+                'Retry with tool_script'
+            )
+        } finally {
+            config.maxToolOutputChars = original
+        }
+    })
+
+    await test('cap error says an args-less entry cannot be narrowed when the sandbox is off', async () => {
+        const original = config.maxToolOutputChars
+        config.maxToolOutputChars = 50
+        config.script.enabled = false
+        try {
+            // analytics.events declares no args, so "narrow the query" would be an instruction
+            // the model cannot follow — the error must route to the operator instead.
+            await expectReject(
+                () =>
+                    handleToolCall(
+                        bridge,
+                        entries,
+                        { name: 'analytics.events', arguments: {} },
+                        { context: ctx, headers }
+                    ),
+                'cannot be narrowed'
+            )
+        } finally {
+            config.maxToolOutputChars = original
+            config.script.enabled = true
+        }
+    })
+
+    await test('cap error still says "narrow the query" for an entry that declares args', async () => {
+        const original = config.maxToolOutputChars
+        config.maxToolOutputChars = 20
+        config.script.enabled = false
+        try {
+            await expectReject(
+                () =>
+                    handleToolCall(
+                        bridge,
+                        entries,
+                        { name: 'product.fetch', arguments: { id: 1 } },
+                        { context: ctx, headers }
+                    ),
+                'Narrow the query'
+            )
+        } finally {
+            config.maxToolOutputChars = original
+            config.script.enabled = true
+        }
     })
 
     // --- execution parity: same validation regardless of path ---
@@ -392,6 +535,40 @@ async function main() {
         )
     })
 
+    // The server's attach_all listing is its own code path — getTools never runs for MCP — so
+    // it gets exercised over the real transport rather than assumed to match.
+    await test('attach_all server lists every visible entry plus tool_script', async () => {
+        const { server: attachAllServer, url: attachAllUrl } = await startMCPServer('attach_all')
+        try {
+            const response = await mcpPost(attachAllUrl, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
+            const names = (response.body?.result?.tools || []).map(tool => tool.name)
+
+            assert(names.includes('tool_script'), 'attach_all server must list tool_script')
+            assert(names.includes('product.fetch'), 'attach_all server must list the entries themselves')
+            assert(!names.includes('user.remove'), 'mcp:false entry must stay hidden in attach_all')
+            assert(!names.includes('tool_search'), 'attach_all must not list the discovery tools')
+            assert(
+                names.length === totalEntries,
+                `Expected ${totalEntries} tools (${totalEntries - 1} visible entries + tool_script), got ${names.length}`
+            )
+        } finally {
+            attachAllServer.close()
+        }
+    })
+
+    await test('attach_all server drops tool_script when mcp is not a configured surface', async () => {
+        config.script.surfaces = ['llm']
+        const { server: attachAllServer, url: attachAllUrl } = await startMCPServer('attach_all')
+        try {
+            const response = await mcpPost(attachAllUrl, { jsonrpc: '2.0', id: 1, method: 'tools/list' })
+            const names = (response.body?.result?.tools || []).map(tool => tool.name)
+            assert(!names.includes('tool_script'), 'tool_script must be hidden when mcp is not a script surface')
+        } finally {
+            config.script.surfaces = ['llm', 'mcp']
+            attachAllServer.close()
+        }
+    })
+
     // The old shared-server design would fail here: Protocol.connect() throws once a Server is
     // already bound to a transport, so a second in-flight request would collide with the first.
     await test('concurrent POSTs are each served independently', async () => {
@@ -432,10 +609,10 @@ async function main() {
 
 // Boots a bare express app carrying only the MCP endpoint, on an OS-assigned port so parallel
 // test runs never collide.
-async function startMCPServer() {
+async function startMCPServer(toolMode: ToolMode = 'on_demand') {
     const app = express()
     app.use(express.json())
-    mountMCP(app, bridge, entries, '/mcp', 'on_demand')
+    mountMCP(app, bridge, entries, '/mcp', toolMode)
 
     const server = app.listen(0)
     await new Promise<void>(resolve => server.once('listening', () => resolve()))

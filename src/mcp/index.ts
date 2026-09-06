@@ -11,6 +11,7 @@ import {
     getMetaTools,
     handleToolCall,
     isEntryVisible,
+    scriptToolDefs,
     toToolInputSchema,
     ToolMode
 } from '../tools'
@@ -110,7 +111,15 @@ function createMCPServer(
                 inputSchema: toToolInputSchema(entry.args)
             }))
 
-        return { tools }
+        // tool_script rides along in attach_all too. The output cap applies to these entries
+        // exactly as it does in on_demand, and the sandbox is the only way past it.
+        const scriptTools = scriptToolDefs('mcp', 'attach_all').map(tool => ({
+            name: tool.name,
+            description: tool.description,
+            inputSchema: tool.parameters
+        }))
+
+        return { tools: [...tools, ...scriptTools] }
     })
 
     server.setRequestHandler(CallToolRequestSchema, async request => {

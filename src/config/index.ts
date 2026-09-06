@@ -27,7 +27,13 @@ interface config {
         // Max memory the sandbox may allocate (bytes). Must exceed the largest intermediate
         // data a script holds, since that data lives in the WASM heap during the run.
         memoryBytes: number
-        // Which AI surfaces expose `tool_script`. Defaults to both.
+        // Max `callTool` invocations in a single run. Time and memory bound the sandbox itself;
+        // this bounds what it does to the backend, since every call runs the full middleware
+        // chain. Over the budget, that call rejects and the script can still return what it has.
+        // Set 0 to disable.
+        maxToolCalls: number
+        // Which AI surfaces expose `tool_script`. Defaults to both. Independent of `toolMode` —
+        // the tool is listed in `attach_all` and `on_demand` alike.
         surfaces: ToolSurface[]
     }
 }
@@ -46,6 +52,7 @@ export const config: config = {
         enabled: true,
         timeoutMs: 5000,
         memoryBytes: 64 * 1024 * 1024,
+        maxToolCalls: 50,
         surfaces: ['llm', 'mcp']
     }
 }
