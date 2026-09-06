@@ -39,8 +39,7 @@ export async function runScript(
     code: unknown,
     ctx: RunScriptContext
 ): Promise<unknown> {
-    if (typeof code !== 'string' || !code.trim())
-        throw new Error('tool_script requires a non-empty "code" string')
+    if (typeof code !== 'string' || !code.trim()) throw new Error('tool_script requires a non-empty "code" string')
 
     const { timeoutMs, memoryBytes } = config.script
 
@@ -106,6 +105,10 @@ function installCallTool(
     ctx: RunScriptContext,
     pendingDeferreds: Set<QuickJSDeferredPromise>
 ): void {
+    // Per-run call budget. `installCallTool` runs once per sandbox context, so this counter is
+    // naturally scoped to a single script.
+    const budget = { toolCalls: 0 }
+
     const callToolRaw = vm.newFunction('__callToolRaw', (nameHandle, argsHandle) => {
         const name = vm.getString(nameHandle)
         const argsJson = argsHandle ? vm.getString(argsHandle) : '{}'
@@ -131,7 +134,7 @@ function installCallTool(
 
         // Run the real tool on the host. Per-call output is intentionally NOT limit-checked
         // (enforceLimit: false) — only the script's final return value is capped.
-        runToolCall(bridge, entries, name, argsJson, ctx).then(
+        runToolCall(bridge, entries, name, argsJson, ctx, budget).then(
             result =>
                 settle(() => {
                     const resultHandle = vm.newString(JSON.stringify(result) ?? 'null')
@@ -140,8 +143,12 @@ function installCallTool(
                 }),
             (error: unknown) =>
                 settle(() => {
+                    // Reject with a guest Error, not a bare string, so the idiomatic
+                    // `catch (error) { error.message }` works inside the sandbox. Recovering
+                    // from a failed call is the whole point of rejecting one (the call budget
+                    // relies on it), and a string rejection makes `.message` undefined.
                     const message = error instanceof Error ? error.message : String(error)
-                    const errorHandle = vm.newString(message)
+                    const errorHandle = vm.newError(message)
                     deferred.reject(errorHandle)
                     errorHandle.dispose()
                 })
@@ -154,15 +161,28 @@ function installCallTool(
     callToolRaw.dispose()
 }
 
-// Validate visibility + parse args, then execute through the same boundary as any tool call
-// (middleware + handler run), with the output limit disabled for the individual call.
+// Check the call budget and visibility, parse args, then execute through the same boundary as
+// any tool call (middleware + handler run), with the output limit disabled for the individual
+// call.
 async function runToolCall(
     bridge: Bridge,
     entries: BridgeEntries,
     name: string,
     argsJson: string,
-    ctx: RunScriptContext
+    ctx: RunScriptContext,
+    budget: { toolCalls: number }
 ): Promise<unknown> {
+    // The sandbox's own limits bound time and memory; this bounds what a script does to the
+    // backend, since every call runs the full middleware chain. Rejecting the call rather than
+    // interrupting the run lets the script catch it and return what it has already gathered.
+    const { maxToolCalls } = config.script
+    budget.toolCalls++
+
+    if (maxToolCalls > 0 && budget.toolCalls > maxToolCalls)
+        throw new Error(
+            `Script exceeded maxToolCalls (${maxToolCalls}). Batch or narrow the work, then return what you have.`
+        )
+
     if (!isEntryVisible(entries[name], ctx.surface)) throw new Error(`Tool not found: ${name}`)
 
     let args: unknown

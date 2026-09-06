@@ -239,6 +239,8 @@ In `on_demand` (the default) the server lists just `tool_search`, `tool_describe
 
 `toolMode` controls **what's listed**, not what's reachable. It's a discovery strategy, not a sandbox: any entry visible to a surface stays callable (via `tool_use` or by its own name), so the two modes always execute identically. The hard boundary is the `mcp` / `llm` visibility flags — a hidden entry is never listed, discoverable, or callable.
 
+[`tool_script`](#tool_script--run-code-across-tools-in-one-step) is listed in **both** modes. It isn't a discovery tool — it's the way past `maxToolOutputChars`, which applies in both modes alike. Its exposure is governed by `tbConfig.script`, never by `toolMode`.
+
 ### Choose what each surface can touch
 
 MCP and LLM tools are independent surfaces. Every entry is exposed to both by default, and two flags — set right on the entry via `defineEntry` — hide a handler from either one while it stays fully callable over HTTP:
@@ -276,8 +278,10 @@ Skip MCP and talk to models directly. Typed Bridge speaks OpenAI, Anthropic, and
 
 ### Two modes, set with `toolMode`
 
-- **`on_demand`** (default) — the model gets three meta-tools and discovers the rest as it needs them.
+- **`on_demand`** (default) — the model gets three discovery meta-tools and finds the rest as it needs them.
 - **`attach_all`** — every eligible entry is attached as its own tool.
+
+[`tool_script`](#tool_script--run-code-across-tools-in-one-step) is added to whichever list you build, unless `tbConfig.script` turns it off.
 
 You choose per call, right where you build the tool list. No global state:
 
@@ -316,7 +320,7 @@ The model calls `tool_search` to discover what exists (names and descriptions on
 
 ```ts
 const tools = getTools(entries, { toolMode: 'attach_all', format: 'openai' })
-// → one tool per entry: user.fetch, product.create, ...
+// → one tool per entry: user.fetch, product.create, ... plus tool_script
 // Pass `tools` straight into openai.chat.completions.create()
 ```
 
@@ -326,7 +330,7 @@ Best when you have a handful of endpoints and want the model to see them all imm
 
 ### `tool_script` — run code across tools in one step
 
-A fourth meta-tool, **on by default**, lets the model write a small JavaScript snippet that runs server-side in a WASM sandbox and calls your tools via `await callTool(name, args)`:
+A meta-tool listed in **both modes** and **on by default**, letting the model write a small JavaScript snippet that runs server-side in a WASM sandbox and calls your tools via `await callTool(name, args)`:
 
 ```ts
 // The model emits:
@@ -341,16 +345,19 @@ tool_script({
 
 Why it matters: tool results fetched **inside** the script are not size-limited, so the model can pull a large dataset, reduce it in the sandbox, and return only the small projection it actually needs. Just the returned value counts against `maxToolOutputChars` — the raw data never enters the context window. This turns a query that would fail with _"Result too large"_ into a one-shot aggregate.
 
-It stays inside the same boundaries as every other tool call: each `callTool` runs your middleware/auth chain and respects `mcp` / `llm` visibility, and the sandbox has no access to `fs`, `net`, `process`, or host globals — its only capability is `callTool`. Runaway scripts are stopped by a wall-clock timeout and a memory cap.
+It stays inside the same boundaries as every other tool call: each `callTool` runs your middleware/auth chain and respects `mcp` / `llm` visibility, and the sandbox has no access to `fs`, `net`, `process`, or host globals — its only capability is `callTool`. Runaway scripts are stopped by a wall-clock timeout, a memory cap, and a per-run limit on how many tools one script may call.
 
 Configure or disable it via `tbConfig.script`:
 
 ```ts
-tbConfig.script.enabled = true              // on by default; set false to remove tool_script
-tbConfig.script.timeoutMs = 5000            // hard wall-clock cap per run
+tbConfig.script.enabled = true               // on by default; set false to remove tool_script
+tbConfig.script.timeoutMs = 5000             // hard wall-clock cap per run
 tbConfig.script.memoryBytes = 64 * 1024 * 1024 // sandbox memory ceiling
-tbConfig.script.surfaces = ['llm', 'mcp']   // which surfaces expose it
+tbConfig.script.maxToolCalls = 50            // callTool invocations per run; 0 disables the limit
+tbConfig.script.surfaces = ['llm', 'mcp']    // which surfaces expose it
 ```
+
+`maxToolCalls` bounds what a script does to your backend, since every `callTool` runs the full middleware chain. Crossing it rejects that one call rather than killing the run, so a script can catch the error and return what it already gathered.
 
 > Requires the `quickjs-emscripten` dependency (installed automatically). It's loaded lazily on the first script run, so it adds no startup cost.
 
@@ -509,14 +516,22 @@ tbConfig.script.surfaces = ['llm', 'mcp'] // Surfaces that expose tool_script
 The same function can serve a data-heavy response over HTTP and as an AI tool. A frontend handles a large payload fine, but feeding it to a model wastes tokens or overflows the context window. So by default Typed Bridge caps tool results at **100,000 characters** on the **MCP and LLM tool surfaces only** (HTTP is never limited). Oversized results are **rejected, not truncated** — the caller gets an error telling it to narrow the query, so the model never receives invalid JSON:
 
 ```ts
-// A tool result over the cap responds with:
-// "Result too large (182431 chars, limit 100000). Narrow the query with filters or pagination."
-
 tbConfig.maxToolOutputChars = 250_000 // raise it
 tbConfig.maxToolOutputChars = 0       // or disable the cap entirely
 ```
 
-When a result is too large to return directly, the model can instead reach for [`tool_script`](#tool_script--run-code-across-tools-in-one-step): it fetches the data in the sandbox (uncapped), reduces it, and returns only the aggregate — so the cap protects the context window without blocking the work.
+The error names the recourse that actually exists for that call, rather than assuming one:
+
+| Situation | What the model is told |
+| --- | --- |
+| `tool_script` is available on this surface | Retry with `tool_script` — fetch it in the sandbox, return only the reduced value |
+| No `tool_script`, entry declares `args` | Narrow the query with filters or pagination |
+| No `tool_script`, entry declares no `args` | This tool cannot be narrowed — ask the operator to raise the cap or enable `tool_script` |
+| The oversized value is a `tool_script` return | Reduce it further inside the script |
+
+[`tool_script`](#tool_script--run-code-across-tools-in-one-step) is the general way through: it fetches the data in the sandbox (uncapped), reduces it, and returns only the aggregate, so the cap protects the context window without blocking the work. It is listed in both tool modes, so the only thing that removes it is `tbConfig.script`.
+
+That leaves one genuine dead end, by design: an entry with **no narrowing arguments**, on a surface where `tool_script` is disabled. Typed Bridge cannot invent a filter your handler never defined, so it says so plainly and points at the operator instead of sending the model round the loop again. If you disable `tool_script`, give your data-heavy entries a way to be narrowed.
 
 ---
 

@@ -116,12 +116,98 @@ async function main() {
         const original = config.maxToolOutputChars
         config.maxToolOutputChars = 5000
         try {
+            await expectReject(() => runScriptTool(`return await callTool('analytics.events', {})`), 'too large')
+        } finally {
+            config.maxToolOutputChars = original
+        }
+    })
+
+    await test('an oversized script return says to reduce inside the script, not to retry with tool_script', async () => {
+        const original = config.maxToolOutputChars
+        config.maxToolOutputChars = 5000
+        try {
+            // The model is already in the sandbox; sending it back to tool_script would loop.
             await expectReject(
                 () => runScriptTool(`return await callTool('analytics.events', {})`),
-                'too large'
+                'Reduce it further inside the script'
             )
         } finally {
             config.maxToolOutputChars = original
+        }
+    })
+
+    // --- call budget ---
+
+    await test('a script exceeding maxToolCalls is rejected on the call that crosses the budget', async () => {
+        const original = config.script.maxToolCalls
+        config.script.maxToolCalls = 3
+        try {
+            await expectReject(
+                () =>
+                    runScriptTool(`
+                        for (let index = 0; index < 10; index++) await callTool('product.fetch', { id: 1 })
+                        return 'never reached'
+                    `),
+                'exceeded maxToolCalls'
+            )
+        } finally {
+            config.script.maxToolCalls = original
+        }
+    })
+
+    await test('a script can catch the budget error and still return what it gathered', async () => {
+        const original = config.script.maxToolCalls
+        config.script.maxToolCalls = 3
+        try {
+            // Rejecting the offending call rather than killing the run is what makes this
+            // possible — the script keeps the results it already has.
+            const fetched = (await runScriptTool(`
+                const products = []
+                try {
+                    for (let index = 0; index < 10; index++) {
+                        products.push(await callTool('product.fetch', { id: 1 }))
+                    }
+                } catch (error) {
+                    return products.length
+                }
+                return products.length
+            `)) as number
+            assert(fetched === 3, `Expected 3 products before the budget tripped, got ${fetched}`)
+        } finally {
+            config.script.maxToolCalls = original
+        }
+    })
+
+    await test('a failed callTool rejects with a real Error, so error.message works in the sandbox', async () => {
+        // Recovering from a failed call is the point of rejecting one rather than killing the
+        // run. A bare string rejection would leave the idiomatic `error.message` undefined.
+        const message = (await runScriptTool(`
+            try {
+                await callTool('product.fetch', { id: 'not-a-number' })
+                return 'no rejection'
+            } catch (error) {
+                return { isError: error instanceof Error, message: error.message }
+            }
+        `)) as { isError: boolean; message: string }
+        assert(message.isError, 'callTool should reject with an Error instance')
+        assert(typeof message.message === 'string' && message.message.length > 0, 'error.message must be readable')
+    })
+
+    await test('maxToolCalls set to 0 disables the budget', async () => {
+        const original = config.script.maxToolCalls
+        config.script.maxToolCalls = 0
+        try {
+            const count = (await runScriptTool(`
+                let calls = 0
+                for (let index = 0; index < 8; index++) {
+                    await callTool('product.fetch', { id: 1 })
+                    calls++
+                }
+                return calls
+            `)) as number
+            assert(count === 8, `Expected 8 uncapped calls, got ${count}`)
+        } finally {
+            config.script.maxToolCalls = original
         }
     })
 
@@ -135,7 +221,10 @@ async function main() {
     })
 
     await test('callTool is denied by auth middleware when headers are missing', async () => {
-        await expectReject(() => runScriptTool(`return await callTool('user.fetch', { id: 1 })`, { headers: {} }), 'Unauthorized')
+        await expectReject(
+            () => runScriptTool(`return await callTool('user.fetch', { id: 1 })`, { headers: {} }),
+            'Unauthorized'
+        )
     })
 
     await test('a Zod validation error inside callTool surfaces to the script', async () => {

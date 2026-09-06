@@ -84,8 +84,7 @@ export function defineBridge<T extends BridgeEntries>(entries: T): ExtractHandle
     for (const [key, entry] of Object.entries(entries)) {
         // Reserved: these names drive the on_demand discovery flow. An entry using one
         // would be shadowed by the meta-tool in handleToolCall and never reachable by name.
-        if (isMetaToolName(key))
-            throw new Error(`Entry name "${key}" is reserved for a meta-tool — rename the entry.`)
+        if (isMetaToolName(key)) throw new Error(`Entry name "${key}" is reserved for a meta-tool — rename the entry.`)
 
         bridge[key] = async (...handlerArgs: any[]) => {
             if (entry.args) handlerArgs[0] = entry.args.parse(handlerArgs[0])
@@ -172,7 +171,8 @@ export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) 
     const surface = options?.surface || 'llm'
 
     // Guard against invalid formats slipping in via casts (e.g. from query params)
-    if (!isLLMToolFormat(format)) throw new Error(`Invalid LLM tool format: ${format}. Expected one of ${LLM_TOOL_FORMATS.join(', ')}`)
+    if (!isLLMToolFormat(format))
+        throw new Error(`Invalid LLM tool format: ${format}. Expected one of ${LLM_TOOL_FORMATS.join(', ')}`)
 
     const tools: unknown[] = []
 
@@ -216,13 +216,20 @@ export function toLLMTools(entries: BridgeEntries, options?: ToLLMToolsOptions) 
     return tools
 }
 
-// --- Meta-tools (tool_search → tool_describe → tool_use) ---
+// --- Meta-tools (tool_search → tool_describe → tool_use, plus tool_script) ---
 
-export function getMetaTools(options?: { format?: LLMToolFormat; surface?: ToolSurface }) {
+// The shape every meta-tool is authored in, before it's reshaped per LLM format.
+type MetaToolDef = {
+    name: string
+    description: string
+    parameters: { type: 'object'; properties: Record<string, unknown>; required?: string[] }
+}
+
+export function getMetaTools(options?: { format?: LLMToolFormat; surface?: ToolSurface }): unknown[] {
     const format = options?.format || 'openai'
     const surface = options?.surface || 'llm'
 
-    const searchTool = {
+    const searchTool: MetaToolDef = {
         name: 'tool_search',
         description:
             'Search for available tools by keyword. Returns matching tool names and descriptions. Use tool_describe to get the full schema before calling tool_use.',
@@ -237,7 +244,7 @@ export function getMetaTools(options?: { format?: LLMToolFormat; surface?: ToolS
         }
     }
 
-    const describeTool = {
+    const describeTool: MetaToolDef = {
         name: 'tool_describe',
         description:
             'Get the full input and output schema for a tool. Call this after tool_search and before tool_use.',
@@ -253,7 +260,7 @@ export function getMetaTools(options?: { format?: LLMToolFormat; surface?: ToolS
         }
     }
 
-    const useTool = {
+    const useTool: MetaToolDef = {
         name: 'tool_use',
         description:
             'Execute a tool by name. Use tool_search and tool_describe first to discover tools and their schemas.',
@@ -273,39 +280,77 @@ export function getMetaTools(options?: { format?: LLMToolFormat; surface?: ToolS
         }
     }
 
-    const scriptTool = {
-        name: 'tool_script',
-        description:
-            'Run a JavaScript snippet in a sandbox to process data across multiple tools in one step. ' +
-            'Inside the code you can `await callTool(name, args)` (same tools as tool_use) as many times as ' +
-            'needed and `return` a value. Tool results fetched here are NOT size-limited, so use this to fetch ' +
-            'large data and filter/aggregate/join it down to the small result you actually need — only your ' +
-            'returned value is sent back (and is size-limited). Discover tool names and schemas with ' +
-            'tool_search and tool_describe first. Example: ' +
-            "`const users = await callTool('user.fetchAll', {}); return users.filter(u => u.active).length`",
-        parameters: {
-            type: 'object',
-            properties: {
-                code: {
-                    type: 'string',
-                    description:
-                        'JavaScript to run. May use `await callTool(name, args)` and should `return` a small value.'
-                }
-            },
-            required: ['code']
+    const tools = [searchTool, describeTool, useTool, ...scriptToolDefs(surface, 'on_demand')]
+
+    return formatMetaTools(tools, format)
+}
+
+/**
+ * `tool_script`, ready to append to whichever list the caller is building — empty when the
+ * sandbox is disabled or off this surface.
+ *
+ * Unlike the three discovery tools, this one belongs to both modes. It is not a way to find
+ * tools; it is the only way past `maxToolOutputChars`, and `attach_all` callers hit that cap
+ * on exactly the same entries.
+ */
+export function scriptToolDefs(surface: ToolSurface, toolMode: ToolMode): MetaToolDef[] {
+    // Opt-out via config.script.enabled, and only on the configured surfaces.
+    if (!config.script.enabled || !config.script.surfaces.includes(surface)) return []
+
+    return [
+        {
+            name: 'tool_script',
+            description: scriptToolDescription(toolMode),
+            parameters: {
+                type: 'object',
+                properties: {
+                    code: {
+                        type: 'string',
+                        description:
+                            'JavaScript to run. May use `await callTool(name, args)` and should `return` a small value.'
+                    }
+                },
+                required: ['code']
+            }
         }
-    }
+    ]
+}
 
-    // tool_script is opt-out (config.script.enabled) and only offered on its configured surfaces.
-    const scriptEnabled = config.script.enabled && config.script.surfaces.includes(surface)
-    const tools = scriptEnabled ? [searchTool, describeTool, useTool, scriptTool] : [searchTool, describeTool, useTool]
+// The discovery sentence has to match the mode: in attach_all, tool_search and tool_describe
+// are not listed, so naming them would send the model after tools it cannot call.
+function scriptToolDescription(toolMode: ToolMode): string {
+    const discovery =
+        toolMode === 'on_demand'
+            ? 'Discover tool names and schemas with tool_search and tool_describe first.'
+            : 'Use the names and schemas of the tools listed alongside this one.'
 
+    const { maxToolCalls } = config.script
+    const budget = maxToolCalls > 0 ? ` At most ${maxToolCalls} callTool invocations per run.` : ''
+
+    return (
+        'Run a JavaScript snippet in a sandbox to process data across multiple tools in one step. ' +
+        'Inside the code you can `await callTool(name, args)` as many times as needed and `return` a value. ' +
+        'Tool results fetched here are NOT size-limited, so use this to fetch large data and ' +
+        'filter/aggregate/join it down to the small result you actually need — only your returned value is ' +
+        'sent back (and is size-limited). ' +
+        discovery +
+        budget +
+        ' Example: ' +
+        "`const users = await callTool('user.fetchAll', {}); return users.filter(u => u.active).length`"
+    )
+}
+
+function formatMetaTools(tools: MetaToolDef[], format: LLMToolFormat): unknown[] {
     switch (format) {
         case 'openai':
-            return tools.map(t => ({ type: 'function', function: t }))
+            return tools.map(tool => ({ type: 'function', function: tool }))
 
         case 'anthropic':
-            return tools.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters }))
+            return tools.map(tool => ({
+                name: tool.name,
+                description: tool.description,
+                input_schema: tool.parameters
+            }))
 
         default:
             return tools
@@ -367,22 +412,57 @@ export function toolDescribe(entries: BridgeEntries, name: string, surface: Tool
     }
 }
 
+// What the caller was doing when the limit tripped. Enough to work out which recourse the
+// model actually has, so the error can name it instead of guessing.
+export type ToolOutputLimitContext = {
+    entry?: BridgeEntry
+    surface?: ToolSurface
+    // Set when measuring a tool_script return value. The model is already in the sandbox, so
+    // the answer is to reduce further there, not to reach for the sandbox again.
+    fromScript?: boolean
+}
+
 /**
  * Serialize a tool result and enforce `tbConfig.maxToolOutputChars`. Oversized results
- * throw (instead of truncating to invalid JSON) so the model is prompted to narrow its
- * query. Returns the serialized JSON (callers may discard it; it's used only to measure).
+ * throw (instead of truncating to invalid JSON) so the model gets a loud failure it can act
+ * on rather than a silently shortened payload it cannot detect. Returns the serialized JSON
+ * (callers may discard it; it's used only to measure).
  */
-export function enforceToolOutputLimit(result: unknown): string {
+export function enforceToolOutputLimit(result: unknown, limitContext?: ToolOutputLimitContext): string {
     const serialized = JSON.stringify(result) ?? ''
     const limit = config.maxToolOutputChars
 
     if (limit > 0 && serialized.length > limit) {
+        const subject = limitContext?.fromScript ? 'Script return value' : 'Result'
+
         throw new Error(
-            `Result too large (${serialized.length} chars, limit ${limit}). Narrow the query with filters or pagination.`
+            `${subject} too large (${serialized.length} chars, limit ${limit}). ${describeRecourse(limitContext)}`
         )
     }
 
     return serialized
+}
+
+/**
+ * Name the way out that actually exists for this caller.
+ *
+ * A fixed "narrow the query" string is wrong whenever the entry declares no `args` — there is
+ * nothing to narrow, so the model invents parameters, fails validation, retries, and ends up
+ * answering from nothing. When no recourse exists, say so and point at the operator instead of
+ * sending the model round the loop again.
+ */
+function describeRecourse(limitContext?: ToolOutputLimitContext): string {
+    if (limitContext?.fromScript)
+        return 'Reduce it further inside the script — aggregate, project fewer fields, or return a count.'
+
+    // tool_script is listed in both tool modes, so surface + config settle its availability.
+    const surface = limitContext?.surface || 'llm'
+    if (config.script.enabled && config.script.surfaces.includes(surface))
+        return 'Retry with tool_script: fetch this inside the sandbox, where results are uncapped, and return only the reduced value.'
+
+    if (limitContext?.entry?.args) return 'Narrow the query with filters or pagination.'
+
+    return 'This tool takes no arguments and cannot be narrowed. Ask the operator to raise tbConfig.maxToolOutputChars or enable tool_script.'
 }
 
 // The single execution boundary: runs the middleware chain, then the handler, and enforces
@@ -397,7 +477,8 @@ export async function toolUse(
     headers?: IncomingHttpHeaders,
     // `enforceLimit: false` skips the output cap for this call. Used by `tool_script`, where
     // per-call results stay inside the sandbox and only the script's final return is capped.
-    options?: { enforceLimit?: boolean }
+    // `entry` and `surface` are only read to word the cap error; they never gate execution.
+    options?: { enforceLimit?: boolean; entry?: BridgeEntry; surface?: ToolSurface }
 ) {
     const handler = bridge[name]
     if (!handler) throw new Error(`Tool not found: ${name}`)
@@ -409,7 +490,8 @@ export async function toolUse(
     const mergedContext = { ...base, ...middlewareContext }
 
     const result = await handler(args, mergedContext)
-    if (options?.enforceLimit !== false) enforceToolOutputLimit(result)
+    if (options?.enforceLimit !== false)
+        enforceToolOutputLimit(result, { entry: options?.entry, surface: options?.surface })
 
     return result
 }
@@ -434,7 +516,10 @@ export async function handleMetaToolCall(
 
             if (!isEntryVisible(entries[args.name], surface)) throw new Error(`Tool not found: ${args.name}`)
 
-            return toolUse(bridge, args.name, args.arguments || {}, context, headers)
+            return toolUse(bridge, args.name, args.arguments || {}, context, headers, {
+                entry: entries[args.name],
+                surface
+            })
         }
 
         case 'tool_script': {
@@ -444,20 +529,20 @@ export async function handleMetaToolCall(
 
             // The sandbox runs uncapped internally; only the final return value is limit-checked.
             const value = await runScript(bridge, entries, toolCall.arguments?.code, { context, surface, headers })
-            enforceToolOutputLimit(value)
+            enforceToolOutputLimit(value, { surface, fromScript: true })
 
             return value
         }
 
         default:
             throw new Error(
-                `Unknown meta-tool: ${toolCall.name}. Expected "tool_search", "tool_describe", or "tool_use".`
+                `Unknown meta-tool: ${toolCall.name}. Expected one of ${META_TOOL_NAMES.map(name => `"${name}"`).join(', ')}.`
             )
     }
 }
 
-// The three meta-tool names are reserved; a tool call by any of these runs the
-// discovery flow, anything else is treated as a direct entry call.
+// The meta-tool names are reserved; a tool call by any of these runs the discovery or
+// sandbox flow, anything else is treated as a direct entry call.
 export const META_TOOL_NAMES = ['tool_search', 'tool_describe', 'tool_use', 'tool_script'] as const
 
 export function isMetaToolName(name: string): boolean {
@@ -466,20 +551,24 @@ export function isMetaToolName(name: string): boolean {
 
 /**
  * Build the tool list for a model, honoring the chosen mode:
- *  - 'attach_all'  → one tool per visible entry (current `toLLMTools` behavior)
- *  - 'on_demand'   → the 3 meta-tools (`tool_search`, `tool_describe`, `tool_use`)
+ *  - 'attach_all'  → one tool per visible entry, plus `tool_script`
+ *  - 'on_demand'   → `tool_search`, `tool_describe`, `tool_use`, plus `tool_script`
+ *
+ * `tool_script` appears in both because it is not a discovery tool. It is the way past
+ * `maxToolOutputChars`, which applies identically in either mode — withholding it from
+ * `attach_all` left that cap with no way through. Remove it with `tbConfig.script.enabled`.
  */
-export function getTools(entries: BridgeEntries, options?: GetToolsOptions) {
+export function getTools(entries: BridgeEntries, options?: GetToolsOptions): unknown[] {
     const toolMode = options?.toolMode || 'on_demand'
     const format = options?.format || 'openai'
+    const surface = options?.surface || 'llm'
 
-    if (toolMode === 'on_demand') return getMetaTools({ format, surface: options?.surface || 'llm' })
+    if (toolMode === 'on_demand') return getMetaTools({ format, surface })
 
-    return toLLMTools(entries, {
-        format,
-        surface: options?.surface || 'llm',
-        includeResponse: options?.includeResponse
-    })
+    return [
+        ...toLLMTools(entries, { format, surface, includeResponse: options?.includeResponse }),
+        ...formatMetaTools(scriptToolDefs(surface, 'attach_all'), format)
+    ]
 }
 
 /**
@@ -508,5 +597,8 @@ export async function handleToolCall(
     // executed result — the only place output is unbounded. Discovery results (tool_search /
     // tool_describe) are deliberately left uncapped, and skip middleware, so a blanket search
     // can never deadlock the model's own recovery path.
-    return toolUse(bridge, toolCall.name, toolCall.arguments || {}, context, headers)
+    return toolUse(bridge, toolCall.name, toolCall.arguments || {}, context, headers, {
+        entry: entries[toolCall.name],
+        surface
+    })
 }
